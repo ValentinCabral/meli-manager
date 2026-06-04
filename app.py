@@ -6,6 +6,8 @@ import csv
 import json
 import math
 import secrets
+import threading
+import time
 from datetime import datetime
 
 import requests
@@ -1291,6 +1293,39 @@ def config():
                            config_data=config_data,
                            page="config")
 
+
+# ─── Auto-sync ──────────────────────────────────────────────
+
+def _start_auto_sync():
+    """Sincroniza visitas cada 15 minutos desde un thread en background.
+
+    Usa el write lock de database.py, así que nunca tira 'database is locked'
+    aunque el usuario haga click en Sync al mismo tiempo.
+    """
+    def _worker():
+        while True:
+            time.sleep(900)  # 15 minutos
+            try:
+                cuentas = db.listar_cuentas()
+                for c in cuentas:
+                    if c.get("active"):
+                        client = meli.MeliClient(
+                            refresh_token=c["refresh_token"],
+                            site_id=c.get("site_id", "MLA"),
+                        )
+                        conn_check = client.check_connection()
+                        if conn_check.get("connected"):
+                            _sync_cuenta_visits(c, client)
+                        break
+            except Exception:
+                pass  # Reintenta en el próximo ciclo
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    print("  [Auto-sync] Sincronizacion cada 15 minutos activada")
+
+
+_start_auto_sync()
 
 # ─── Main ──────────────────────────────────────────────────
 

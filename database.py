@@ -2,199 +2,217 @@
 
 import sqlite3
 import os
+import threading
+import contextlib
 from datetime import datetime
 from config import DB_PATH, ML_CLIENT_ID, ML_CLIENT_SECRET, ML_REFRESH_TOKEN, ML_SITE_ID
 
+_db_write_lock = threading.Lock()
+
 
 def get_db():
-    """Obtiene conexión a la base de datos."""
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    """Obtiene conexión a la base de datos (solo lectura)."""
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=5000")
     return conn
+
+
+@contextlib.contextmanager
+def _write_db():
+    """Context manager for write operations.
+
+    Serializa escrituras con un Lock para evitar 'database is locked'
+    cuando múltiples requests o el auto-sync background intentan
+    escribir simultáneamente.
+    """
+    with _db_write_lock:
+        conn = sqlite3.connect(DB_PATH, timeout=30)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
 
 def init_db():
     """Inicializa el esquema y migra datos existentes."""
-    conn = get_db()
-    cursor = conn.cursor()
+    with _write_db() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS usuarios (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                google_id TEXT UNIQUE NOT NULL,
+                email TEXT NOT NULL,
+                nombre TEXT,
+                avatar_url TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
 
-    cursor.executescript("""
-        CREATE TABLE IF NOT EXISTS usuarios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            google_id TEXT UNIQUE NOT NULL,
-            email TEXT NOT NULL,
-            nombre TEXT,
-            avatar_url TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+            CREATE TABLE IF NOT EXISTS cuentas_meli (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nickname TEXT,
+                user_id TEXT,
+                refresh_token TEXT NOT NULL,
+                access_token TEXT,
+                expires_at TIMESTAMP,
+                active BOOLEAN DEFAULT 0,
+                site_id TEXT DEFAULT 'MLA',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
 
-        CREATE TABLE IF NOT EXISTS cuentas_meli (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nickname TEXT,
-            user_id TEXT,
-            refresh_token TEXT NOT NULL,
-            access_token TEXT,
-            expires_at TIMESTAMP,
-            active BOOLEAN DEFAULT 0,
-            site_id TEXT DEFAULT 'MLA',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+            CREATE TABLE IF NOT EXISTS productos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cuenta_id INTEGER NOT NULL DEFAULT 1,
+                nombre TEXT NOT NULL,
+                sku TEXT,
+                marca TEXT,
+                modelo TEXT,
+                color TEXT,
+                costo REAL DEFAULT 0,
+                stock INTEGER DEFAULT 0,
+                categoria_id TEXT DEFAULT 'MLA1055',
+                catalog_product_id TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cuenta_id) REFERENCES cuentas_meli(id),
+                UNIQUE(cuenta_id, sku)
+            );
 
-        CREATE TABLE IF NOT EXISTS productos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cuenta_id INTEGER NOT NULL DEFAULT 1,
-            nombre TEXT NOT NULL,
-            sku TEXT,
-            marca TEXT,
-            modelo TEXT,
-            color TEXT,
-            costo REAL DEFAULT 0,
-            stock INTEGER DEFAULT 0,
-            categoria_id TEXT DEFAULT 'MLA1055',
-            catalog_product_id TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (cuenta_id) REFERENCES cuentas_meli(id),
-            UNIQUE(cuenta_id, sku)
-        );
+            CREATE TABLE IF NOT EXISTS publicaciones (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cuenta_id INTEGER NOT NULL DEFAULT 1,
+                producto_id INTEGER NOT NULL,
+                meli_item_id TEXT,
+                titulo TEXT,
+                precio REAL NOT NULL,
+                listing_type TEXT NOT NULL DEFAULT 'gold_special',
+                campaign_tag TEXT,
+                stock INTEGER DEFAULT 1,
+                estado TEXT DEFAULT 'borrador',
+                url TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cuenta_id) REFERENCES cuentas_meli(id),
+                FOREIGN KEY (producto_id) REFERENCES productos(id)
+            );
 
-        CREATE TABLE IF NOT EXISTS publicaciones (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cuenta_id INTEGER NOT NULL DEFAULT 1,
-            producto_id INTEGER NOT NULL,
-            meli_item_id TEXT,
-            titulo TEXT,
-            precio REAL NOT NULL,
-            listing_type TEXT NOT NULL DEFAULT 'gold_special',
-            campaign_tag TEXT,
-            stock INTEGER DEFAULT 1,
-            estado TEXT DEFAULT 'borrador',
-            url TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (cuenta_id) REFERENCES cuentas_meli(id),
-            FOREIGN KEY (producto_id) REFERENCES productos(id)
-        );
+            CREATE TABLE IF NOT EXISTS configuracion (
+                clave TEXT PRIMARY KEY,
+                valor TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
 
-        CREATE TABLE IF NOT EXISTS configuracion (
-            clave TEXT PRIMARY KEY,
-            valor TEXT NOT NULL,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+            CREATE TABLE IF NOT EXISTS historial_precios (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cuenta_id INTEGER NOT NULL DEFAULT 1,
+                producto_id INTEGER,
+                precio_anterior REAL,
+                precio_nuevo REAL,
+                motivo TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cuenta_id) REFERENCES cuentas_meli(id),
+                FOREIGN KEY (producto_id) REFERENCES productos(id)
+            );
 
-        CREATE TABLE IF NOT EXISTS historial_precios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cuenta_id INTEGER NOT NULL DEFAULT 1,
-            producto_id INTEGER,
-            precio_anterior REAL,
-            precio_nuevo REAL,
-            motivo TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (cuenta_id) REFERENCES cuentas_meli(id),
-            FOREIGN KEY (producto_id) REFERENCES productos(id)
-        );
+            CREATE TABLE IF NOT EXISTS importaciones (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cuenta_id INTEGER NOT NULL DEFAULT 1,
+                archivo TEXT,
+                filas_importadas INTEGER DEFAULT 0,
+                filas_errores INTEGER DEFAULT 0,
+                resultado TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cuenta_id) REFERENCES cuentas_meli(id)
+            );
 
-        CREATE TABLE IF NOT EXISTS importaciones (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cuenta_id INTEGER NOT NULL DEFAULT 1,
-            archivo TEXT,
-            filas_importadas INTEGER DEFAULT 0,
-            filas_errores INTEGER DEFAULT 0,
-            resultado TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (cuenta_id) REFERENCES cuentas_meli(id)
-        );
+            CREATE TABLE IF NOT EXISTS ordenes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cuenta_id INTEGER NOT NULL REFERENCES cuentas_meli(id),
+                meli_order_id TEXT NOT NULL UNIQUE,
+                total_paid_amount REAL DEFAULT 0,
+                marketplace_fee REAL DEFAULT 0,
+                shipping_cost REAL DEFAULT 0,
+                status TEXT DEFAULT 'paid',
+                date_created TIMESTAMP,
+                buyer_nickname TEXT DEFAULT '',
+                buyer_id TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
 
-        CREATE TABLE IF NOT EXISTS ordenes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cuenta_id INTEGER NOT NULL REFERENCES cuentas_meli(id),
-            meli_order_id TEXT NOT NULL UNIQUE,
-            total_paid_amount REAL DEFAULT 0,
-            marketplace_fee REAL DEFAULT 0,
-            shipping_cost REAL DEFAULT 0,
-            status TEXT DEFAULT 'paid',
-            date_created TIMESTAMP,
-            buyer_nickname TEXT DEFAULT '',
-            buyer_id TEXT DEFAULT '',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+            CREATE TABLE IF NOT EXISTS orden_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                orden_id INTEGER NOT NULL REFERENCES ordenes(id),
+                meli_item_id TEXT NOT NULL,
+                quantity INTEGER DEFAULT 1,
+                unit_price REAL DEFAULT 0,
+                total_amount REAL DEFAULT 0,
+                item_title TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
 
-        CREATE TABLE IF NOT EXISTS orden_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            orden_id INTEGER NOT NULL REFERENCES ordenes(id),
-            meli_item_id TEXT NOT NULL,
-            quantity INTEGER DEFAULT 1,
-            unit_price REAL DEFAULT 0,
-            total_amount REAL DEFAULT 0,
-            item_title TEXT DEFAULT '',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+            CREATE TABLE IF NOT EXISTS visitas_publicacion (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cuenta_id INTEGER NOT NULL REFERENCES cuentas_meli(id),
+                meli_item_id TEXT NOT NULL,
+                visitas INTEGER DEFAULT 0,
+                fecha TEXT DEFAULT (date('now')),
+                synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(cuenta_id, meli_item_id)
+            );
+        """)
 
-        CREATE TABLE IF NOT EXISTS visitas_publicacion (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cuenta_id INTEGER NOT NULL REFERENCES cuentas_meli(id),
-            meli_item_id TEXT NOT NULL,
-            visitas INTEGER DEFAULT 0,
-            fecha TEXT DEFAULT (date('now')),
-            synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(cuenta_id, meli_item_id)
-        );
-    """)
+        # Migración: agregar columnas faltantes en tablas existentes
+        migraciones = [
+            ("productos", "cuenta_id", "INTEGER NOT NULL DEFAULT 1 REFERENCES cuentas_meli(id)"),
+            ("publicaciones", "cuenta_id", "INTEGER NOT NULL DEFAULT 1 REFERENCES cuentas_meli(id)"),
+            ("historial_precios", "cuenta_id", "INTEGER NOT NULL DEFAULT 1 REFERENCES cuentas_meli(id)"),
+            ("importaciones", "cuenta_id", "INTEGER NOT NULL DEFAULT 1 REFERENCES cuentas_meli(id)"),
+        ]
+        for tabla, columna, definicion in migraciones:
+            try:
+                conn.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {definicion}")
+            except sqlite3.OperationalError:
+                pass  # ya existe
 
-    # Migración: agregar columnas faltantes en tablas existentes
-    migraciones = [
-        ("productos", "cuenta_id", "INTEGER NOT NULL DEFAULT 1 REFERENCES cuentas_meli(id)"),
-        ("publicaciones", "cuenta_id", "INTEGER NOT NULL DEFAULT 1 REFERENCES cuentas_meli(id)"),
-        ("historial_precios", "cuenta_id", "INTEGER NOT NULL DEFAULT 1 REFERENCES cuentas_meli(id)"),
-        ("importaciones", "cuenta_id", "INTEGER NOT NULL DEFAULT 1 REFERENCES cuentas_meli(id)"),
-    ]
-    for tabla, columna, definicion in migraciones:
+        # Migración: agregar usuario_id a cuentas_meli
         try:
-            cursor.execute(f"ALTER TABLE {tabla} ADD COLUMN {columna} {definicion}")
+            conn.execute("SELECT usuario_id FROM cuentas_meli LIMIT 1")
         except sqlite3.OperationalError:
-            pass  # ya existe
+            conn.execute("ALTER TABLE cuentas_meli ADD COLUMN usuario_id INTEGER DEFAULT 1")
 
-    # Migración: agregar usuario_id a cuentas_meli
-    try:
-        cursor.execute("SELECT usuario_id FROM cuentas_meli LIMIT 1")
-    except sqlite3.OperationalError:
-        cursor.execute("ALTER TABLE cuentas_meli ADD COLUMN usuario_id INTEGER DEFAULT 1")
-
-    # Seed: crear cuenta default desde .env si no hay ninguna cuenta
-    cuenta_default = cursor.execute("SELECT COUNT(*) as c FROM cuentas_meli").fetchone()["c"]
-    if cuenta_default == 0 and ML_REFRESH_TOKEN:
-        cursor.execute("""
-            INSERT INTO cuentas_meli (nickname, refresh_token, active, site_id)
-            VALUES (?, ?, 1, ?)
-        """, (f"Cuenta {ML_SITE_ID} (desde .env)", ML_REFRESH_TOKEN, ML_SITE_ID))
-        cuenta_id = cursor.lastrowid
-        # Migrar productos/publicaciones existentes a esta cuenta
-        cursor.execute("UPDATE productos SET cuenta_id = ? WHERE cuenta_id = 1", (cuenta_id,))
-        cursor.execute("UPDATE publicaciones SET cuenta_id = ? WHERE cuenta_id = 1", (cuenta_id,))
-        cursor.execute("UPDATE historial_precios SET cuenta_id = ? WHERE cuenta_id = 1", (cuenta_id,))
-        cursor.execute("UPDATE importaciones SET cuenta_id = ? WHERE cuenta_id = 1", (cuenta_id,))
-
-    conn.commit()
-    conn.close()
+        # Seed: crear cuenta default desde .env si no hay ninguna cuenta
+        cuenta_default = conn.execute("SELECT COUNT(*) as c FROM cuentas_meli").fetchone()["c"]
+        if cuenta_default == 0 and ML_REFRESH_TOKEN:
+            conn.execute("""
+                INSERT INTO cuentas_meli (nickname, refresh_token, active, site_id)
+                VALUES (?, ?, 1, ?)
+            """, (f"Cuenta {ML_SITE_ID} (desde .env)", ML_REFRESH_TOKEN, ML_SITE_ID))
+            cuenta_id = conn.lastrowid
+            # Migrar productos/publicaciones existentes a esta cuenta
+            conn.execute("UPDATE productos SET cuenta_id = ? WHERE cuenta_id = 1", (cuenta_id,))
+            conn.execute("UPDATE publicaciones SET cuenta_id = ? WHERE cuenta_id = 1", (cuenta_id,))
+            conn.execute("UPDATE historial_precios SET cuenta_id = ? WHERE cuenta_id = 1", (cuenta_id,))
+            conn.execute("UPDATE importaciones SET cuenta_id = ? WHERE cuenta_id = 1", (cuenta_id,))
 
 
 # ─── Usuarios CRUD ────────────────────────────────────────────
 
 def crear_usuario(google_id, email, nombre, avatar_url=""):
-    conn = get_db()
-    cursor = conn.execute("""
-        INSERT INTO usuarios (google_id, email, nombre, avatar_url)
-        VALUES (?, ?, ?, ?)
-    """, (google_id, email, nombre, avatar_url))
-    conn.commit()
-    uid = cursor.lastrowid
-    conn.close()
-    return uid
+    with _write_db() as conn:
+        cursor = conn.execute("""
+            INSERT INTO usuarios (google_id, email, nombre, avatar_url)
+            VALUES (?, ?, ?, ?)
+        """, (google_id, email, nombre, avatar_url))
+        return cursor.lastrowid
 
 
 def get_usuario_by_google_id(google_id):
@@ -252,23 +270,18 @@ def get_cuenta_activa():
 
 
 def activar_cuenta(cuenta_id):
-    conn = get_db()
-    conn.execute("UPDATE cuentas_meli SET active = 0")
-    conn.execute("UPDATE cuentas_meli SET active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (cuenta_id,))
-    conn.commit()
-    conn.close()
+    with _write_db() as conn:
+        conn.execute("UPDATE cuentas_meli SET active = 0")
+        conn.execute("UPDATE cuentas_meli SET active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (cuenta_id,))
 
 
 def crear_cuenta(nickname, refresh_token, user_id="", site_id="MLA", usuario_id=None):
-    conn = get_db()
-    cursor = conn.execute("""
-        INSERT INTO cuentas_meli (nickname, user_id, refresh_token, site_id, usuario_id)
-        VALUES (?, ?, ?, ?, ?)
-    """, (nickname, user_id, refresh_token, site_id, usuario_id))
-    conn.commit()
-    cid = cursor.lastrowid
-    conn.close()
-    return cid
+    with _write_db() as conn:
+        cursor = conn.execute("""
+            INSERT INTO cuentas_meli (nickname, user_id, refresh_token, site_id, usuario_id)
+            VALUES (?, ?, ?, ?, ?)
+        """, (nickname, user_id, refresh_token, site_id, usuario_id))
+        return cursor.lastrowid
 
 
 def actualizar_cuenta(cuenta_id, **kwargs):
@@ -283,21 +296,17 @@ def actualizar_cuenta(cuenta_id, **kwargs):
         return
     campos.append("updated_at = CURRENT_TIMESTAMP")
     valores.append(cuenta_id)
-    conn = get_db()
-    conn.execute(f"UPDATE cuentas_meli SET {', '.join(campos)} WHERE id = ?", valores)
-    conn.commit()
-    conn.close()
+    with _write_db() as conn:
+        conn.execute(f"UPDATE cuentas_meli SET {', '.join(campos)} WHERE id = ?", valores)
 
 
 def eliminar_cuenta(cuenta_id):
-    conn = get_db()
-    conn.execute("DELETE FROM importaciones WHERE cuenta_id = ?", (cuenta_id,))
-    conn.execute("DELETE FROM historial_precios WHERE cuenta_id = ?", (cuenta_id,))
-    conn.execute("DELETE FROM publicaciones WHERE cuenta_id = ?", (cuenta_id,))
-    conn.execute("DELETE FROM productos WHERE cuenta_id = ?", (cuenta_id,))
-    conn.execute("DELETE FROM cuentas_meli WHERE id = ?", (cuenta_id,))
-    conn.commit()
-    conn.close()
+    with _write_db() as conn:
+        conn.execute("DELETE FROM importaciones WHERE cuenta_id = ?", (cuenta_id,))
+        conn.execute("DELETE FROM historial_precios WHERE cuenta_id = ?", (cuenta_id,))
+        conn.execute("DELETE FROM publicaciones WHERE cuenta_id = ?", (cuenta_id,))
+        conn.execute("DELETE FROM productos WHERE cuenta_id = ?", (cuenta_id,))
+        conn.execute("DELETE FROM cuentas_meli WHERE id = ?", (cuenta_id,))
 
 
 # ─── Productos CRUD ──────────────────────────────────────────
@@ -373,15 +382,12 @@ def get_producto(producto_id):
 def crear_producto(cuenta_id, nombre, sku="", marca="", modelo="", color="",
                    costo=0, stock=0, categoria_id="MLA1055",
                    catalog_product_id=""):
-    conn = get_db()
-    cursor = conn.execute("""
-        INSERT INTO productos (cuenta_id, nombre, sku, marca, modelo, color, costo, stock, categoria_id, catalog_product_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (cuenta_id, nombre, sku, marca, modelo, color, costo, stock, categoria_id, catalog_product_id))
-    conn.commit()
-    prod_id = cursor.lastrowid
-    conn.close()
-    return prod_id
+    with _write_db() as conn:
+        cursor = conn.execute("""
+            INSERT INTO productos (cuenta_id, nombre, sku, marca, modelo, color, costo, stock, categoria_id, catalog_product_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (cuenta_id, nombre, sku, marca, modelo, color, costo, stock, categoria_id, catalog_product_id))
+        return cursor.lastrowid
 
 
 def actualizar_producto(producto_id, **kwargs):
@@ -396,37 +402,31 @@ def actualizar_producto(producto_id, **kwargs):
         return
     campos.append("updated_at = CURRENT_TIMESTAMP")
     valores.append(producto_id)
-    conn = get_db()
-    conn.execute(f"UPDATE productos SET {', '.join(campos)} WHERE id = ?", valores)
-    conn.commit()
-    conn.close()
+    with _write_db() as conn:
+        conn.execute(f"UPDATE productos SET {', '.join(campos)} WHERE id = ?", valores)
 
 
 def eliminar_producto(producto_id):
-    conn = get_db()
-    conn.execute("DELETE FROM publicaciones WHERE producto_id = ?", (producto_id,))
-    conn.execute("DELETE FROM historial_precios WHERE producto_id = ?", (producto_id,))
-    conn.execute("DELETE FROM productos WHERE id = ?", (producto_id,))
-    conn.commit()
-    conn.close()
+    with _write_db() as conn:
+        conn.execute("DELETE FROM publicaciones WHERE producto_id = ?", (producto_id,))
+        conn.execute("DELETE FROM historial_precios WHERE producto_id = ?", (producto_id,))
+        conn.execute("DELETE FROM productos WHERE id = ?", (producto_id,))
 
 
 def eliminar_productos_por_nombre(nombre, cuenta_id):
     """Elimina todos los productos con el mismo nombre (variantes)."""
-    conn = get_db()
-    conn.execute("""
-        DELETE FROM publicaciones WHERE producto_id IN (
-            SELECT id FROM productos WHERE nombre = ? AND cuenta_id = ?
-        )
-    """, (nombre, cuenta_id))
-    conn.execute("""
-        DELETE FROM historial_precios WHERE producto_id IN (
-            SELECT id FROM productos WHERE nombre = ? AND cuenta_id = ?
-        )
-    """, (nombre, cuenta_id))
-    conn.execute("DELETE FROM productos WHERE nombre = ? AND cuenta_id = ?", (nombre, cuenta_id))
-    conn.commit()
-    conn.close()
+    with _write_db() as conn:
+        conn.execute("""
+            DELETE FROM publicaciones WHERE producto_id IN (
+                SELECT id FROM productos WHERE nombre = ? AND cuenta_id = ?
+            )
+        """, (nombre, cuenta_id))
+        conn.execute("""
+            DELETE FROM historial_precios WHERE producto_id IN (
+                SELECT id FROM productos WHERE nombre = ? AND cuenta_id = ?
+            )
+        """, (nombre, cuenta_id))
+        conn.execute("DELETE FROM productos WHERE nombre = ? AND cuenta_id = ?", (nombre, cuenta_id))
 
 
 # ─── Publicaciones CRUD ──────────────────────────────────────
@@ -468,17 +468,14 @@ def get_publicacion(pub_id):
 def crear_publicacion(cuenta_id, producto_id, precio, listing_type="gold_special",
                       campaign_tag="", stock=1, meli_item_id="",
                       titulo="", estado="borrador", url=""):
-    conn = get_db()
-    cursor = conn.execute("""
-        INSERT INTO publicaciones (cuenta_id, producto_id, meli_item_id, titulo, precio,
-                                   listing_type, campaign_tag, stock, estado, url)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (cuenta_id, producto_id, meli_item_id, titulo, precio,
-          listing_type, campaign_tag, stock, estado, url))
-    conn.commit()
-    pub_id = cursor.lastrowid
-    conn.close()
-    return pub_id
+    with _write_db() as conn:
+        cursor = conn.execute("""
+            INSERT INTO publicaciones (cuenta_id, producto_id, meli_item_id, titulo, precio,
+                                       listing_type, campaign_tag, stock, estado, url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (cuenta_id, producto_id, meli_item_id, titulo, precio,
+              listing_type, campaign_tag, stock, estado, url))
+        return cursor.lastrowid
 
 
 def actualizar_publicacion(pub_id, **kwargs):
@@ -493,10 +490,8 @@ def actualizar_publicacion(pub_id, **kwargs):
         return
     campos.append("updated_at = CURRENT_TIMESTAMP")
     valores.append(pub_id)
-    conn = get_db()
-    conn.execute(f"UPDATE publicaciones SET {', '.join(campos)} WHERE id = ?", valores)
-    conn.commit()
-    conn.close()
+    with _write_db() as conn:
+        conn.execute(f"UPDATE publicaciones SET {', '.join(campos)} WHERE id = ?", valores)
 
 
 def listar_publicaciones_recientes(cuenta_id=None, limite=5):
@@ -520,10 +515,8 @@ def listar_publicaciones_recientes(cuenta_id=None, limite=5):
 
 
 def eliminar_publicacion(pub_id):
-    conn = get_db()
-    conn.execute("DELETE FROM publicaciones WHERE id = ?", (pub_id,))
-    conn.commit()
-    conn.close()
+    with _write_db() as conn:
+        conn.execute("DELETE FROM publicaciones WHERE id = ?", (pub_id,))
 
 
 # ─── Configuración ──────────────────────────────────────────
@@ -536,14 +529,12 @@ def get_config(clave, default=""):
 
 
 def set_config(clave, valor):
-    conn = get_db()
-    conn.execute("""
-        INSERT INTO configuracion (clave, valor, updated_at)
-        VALUES (?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, updated_at = CURRENT_TIMESTAMP
-    """, (clave, valor))
-    conn.commit()
-    conn.close()
+    with _write_db() as conn:
+        conn.execute("""
+            INSERT INTO configuracion (clave, valor, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor, updated_at = CURRENT_TIMESTAMP
+        """, (clave, valor))
 
 
 def get_all_config():
@@ -557,54 +548,49 @@ def get_all_config():
 
 def upsert_orden(cuenta_id, data):
     """Inserta o actualiza una orden por meli_order_id. Devuelve el id."""
-    conn = get_db()
-    cursor = conn.execute("""
-        INSERT INTO ordenes (cuenta_id, meli_order_id, total_paid_amount, marketplace_fee,
-                             shipping_cost, status, date_created, buyer_nickname, buyer_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(meli_order_id) DO UPDATE SET
-            total_paid_amount = excluded.total_paid_amount,
-            marketplace_fee = excluded.marketplace_fee,
-            shipping_cost = excluded.shipping_cost,
-            status = excluded.status,
-            buyer_nickname = excluded.buyer_nickname,
-            buyer_id = excluded.buyer_id,
-            updated_at = CURRENT_TIMESTAMP
-    """, (
-        cuenta_id,
-        data["meli_order_id"],
-        data.get("total_paid_amount", 0),
-        data.get("marketplace_fee", 0),
-        data.get("shipping_cost", 0),
-        data.get("status", "paid"),
-        data.get("date_created"),
-        data.get("buyer_nickname", ""),
-        data.get("buyer_id", ""),
-    ))
-    conn.commit()
-    orden_id = cursor.lastrowid
-    conn.close()
-    return orden_id
+    with _write_db() as conn:
+        cursor = conn.execute("""
+            INSERT INTO ordenes (cuenta_id, meli_order_id, total_paid_amount, marketplace_fee,
+                                 shipping_cost, status, date_created, buyer_nickname, buyer_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(meli_order_id) DO UPDATE SET
+                total_paid_amount = excluded.total_paid_amount,
+                marketplace_fee = excluded.marketplace_fee,
+                shipping_cost = excluded.shipping_cost,
+                status = excluded.status,
+                buyer_nickname = excluded.buyer_nickname,
+                buyer_id = excluded.buyer_id,
+                updated_at = CURRENT_TIMESTAMP
+        """, (
+            cuenta_id,
+            data["meli_order_id"],
+            data.get("total_paid_amount", 0),
+            data.get("marketplace_fee", 0),
+            data.get("shipping_cost", 0),
+            data.get("status", "paid"),
+            data.get("date_created"),
+            data.get("buyer_nickname", ""),
+            data.get("buyer_id", ""),
+        ))
+        return cursor.lastrowid
 
 
 def upsert_orden_items(orden_id, items):
     """Reemplaza los items de una orden: elimina viejos e inserta nuevos."""
-    conn = get_db()
-    conn.execute("DELETE FROM orden_items WHERE orden_id = ?", (orden_id,))
-    for item in items:
-        conn.execute("""
-            INSERT INTO orden_items (orden_id, meli_item_id, quantity, unit_price, total_amount, item_title)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            orden_id,
-            item.get("meli_item_id", ""),
-            item.get("quantity", 1),
-            item.get("unit_price", 0),
-            item.get("total_amount", 0),
-            item.get("item_title", ""),
-        ))
-    conn.commit()
-    conn.close()
+    with _write_db() as conn:
+        conn.execute("DELETE FROM orden_items WHERE orden_id = ?", (orden_id,))
+        for item in items:
+            conn.execute("""
+                INSERT INTO orden_items (orden_id, meli_item_id, quantity, unit_price, total_amount, item_title)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                orden_id,
+                item.get("meli_item_id", ""),
+                item.get("quantity", 1),
+                item.get("unit_price", 0),
+                item.get("total_amount", 0),
+                item.get("item_title", ""),
+            ))
 
 
 def listar_ordenes(cuenta_id, desde="", hasta="", estado="",
@@ -693,17 +679,15 @@ def count_ordenes(cuenta_id, desde="", hasta="", estado=""):
 
 def upsert_visita(cuenta_id, meli_item_id, visitas):
     """Inserta o actualiza visitas de una publicación. Upsert por (cuenta_id, meli_item_id)."""
-    conn = get_db()
-    conn.execute("""
-        INSERT INTO visitas_publicacion (cuenta_id, meli_item_id, visitas)
-        VALUES (?, ?, ?)
-        ON CONFLICT(cuenta_id, meli_item_id) DO UPDATE SET
-            visitas = excluded.visitas,
-            fecha = date('now'),
-            synced_at = CURRENT_TIMESTAMP
-    """, (cuenta_id, meli_item_id, visitas))
-    conn.commit()
-    conn.close()
+    with _write_db() as conn:
+        conn.execute("""
+            INSERT INTO visitas_publicacion (cuenta_id, meli_item_id, visitas)
+            VALUES (?, ?, ?)
+            ON CONFLICT(cuenta_id, meli_item_id) DO UPDATE SET
+                visitas = excluded.visitas,
+                fecha = date('now'),
+                synced_at = CURRENT_TIMESTAMP
+        """, (cuenta_id, meli_item_id, visitas))
 
 
 def get_visitas(cuenta_id):
@@ -812,7 +796,8 @@ def get_metricas(cuenta_id=None):
         return conn.execute(sql, params or []).fetchone()
 
     if cuenta_id:
-        total_productos = _q("SELECT COUNT(*) as c FROM productos WHERE cuenta_id = ?", [cuenta_id])["c"]
+        # ⭐ Usamos GROUP BY nombre para contar productos únicos, no filas de variantes
+        total_productos = _q("SELECT COUNT(*) as c FROM (SELECT 1 FROM productos WHERE cuenta_id = ? GROUP BY nombre)", [cuenta_id])["c"]
         stock_total = _q("""
             SELECT COALESCE(SUM(sub.stock), 0) as v FROM (
                 SELECT MAX(stock) as stock FROM productos
@@ -844,7 +829,7 @@ def get_metricas(cuenta_id=None):
         """, [cuenta_id])["v"]
         ingresos_reales = _q("SELECT COALESCE(SUM(total_paid_amount), 0) as v FROM ordenes WHERE cuenta_id = ?", [cuenta_id])["v"]
     else:
-        total_productos = _q("SELECT COUNT(*) as c FROM productos")["c"]
+        total_productos = _q("SELECT COUNT(*) as c FROM (SELECT 1 FROM productos GROUP BY nombre)")["c"]
         stock_total = _q("""
             SELECT COALESCE(SUM(sub.stock), 0) as v FROM (
                 SELECT MAX(stock) as stock FROM productos GROUP BY nombre
