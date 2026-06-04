@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="section-header">
+    <h1 class="section-title">📋 Resultado de Publicación Masiva</h1>
+    <a href="{{ url_for('publicar_masiva') }}" class="btn btn-primary">Volver a publicar</a>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
+    <div class="card" style="text-align: center;">
+        <p class="text-sm" style="color: var(--color-on-surface-variant);">Total</p>
+        <p class="text-2xl font-bold">{{ total }}</p>
+    </div>
+    <div class="card" style="text-align: center;">
+        <p class="text-sm" style="color: var(--color-on-surface-variant);">Exitosos</p>
+        <p class="text-2xl font-bold" style="color: var(--color-success);">{{ exitosos }}</p>
+    </div>
+    <div class="card" style="text-align: center;">
+        <p class="text-sm" style="color: var(--color-on-surface-variant);">Fallidos</p>
+        <p class="text-2xl font-bold" style="color: var(--color-error);">{{ fallidos }}</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="overflow-x-auto">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Producto</th>
+                    <th style="text-align: center;">Resultado</th>
+                    <th>Detalle</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in resultados %}
+                <tr>
+                    <td style="font-weight: 500;">{{ r.producto }}</td>
+                    <td style="text-align: center;">
+                        {% if r.success %}
+                        <span class="badge badge-success">✅ Publicado</span>
+                        {% else %}
+                        <span class="badge badge-error">❌ Error</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if r.success %}
+                        <a href="{{ r.url }}" target="_blank" style="color: var(--color-primary); font-family: monospace; font-size: 13px;">{{ r.item_id }}</a>
+                        {% else %}
+                        <span class="text-sm" style="color: var(--color-error);">{{ r.error[:100] }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

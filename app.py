@@ -967,6 +967,94 @@ def publicar():
                            page="publicar")
 
 
+@app.route("/publicar-masiva", methods=["GET", "POST"])
+def publicar_masiva():
+    """Publicación masiva: seleccionar múltiples productos y publicar en lote."""
+    cuenta = get_active_cuenta()
+    if not cuenta:
+        flash("Primero conectá una cuenta de MercadoLibre desde Cuentas", "warning")
+        return redirect(url_for("cuentas"))
+
+    if request.method == "POST":
+        producto_ids = request.form.getlist("producto_ids")
+        if not producto_ids:
+            flash("Seleccioná al menos un producto", "warning")
+            return redirect(url_for("publicar_masiva"))
+
+        precio_base = float(request.form.get("precio", 0))
+        listing_type = request.form.get("listing_type", "gold_special")
+        campaign_tag = request.form.get("campaign_tag", "")
+        stock = int(request.form.get("stock", 1))
+        family_name = request.form.get("family_name", "")
+
+        client = get_meli_client(cuenta)
+        resultados = []
+        total = len(producto_ids)
+
+        for i, pid_str in enumerate(producto_ids):
+            pid = int(pid_str)
+            producto = db.get_producto(pid)
+            if not producto:
+                resultados.append({"producto": f"ID {pid}", "success": False, "error": "Producto no encontrado"})
+                continue
+
+            catalog_pid = producto.get("catalog_product_id") or ""
+            if not catalog_pid:
+                resultados.append({"producto": producto["nombre"], "success": False, "error": "Sin catalog_product_id"})
+                continue
+
+            result = client.crear_publicacion(
+                catalog_product_id=catalog_pid,
+                price=precio_base,
+                listing_type=listing_type,
+                campaign_tag=campaign_tag,
+                stock=stock,
+                category_id=producto.get("categoria_id", "MLA1055"),
+                family_name=family_name,
+            )
+
+            if result["success"]:
+                db.crear_publicacion(
+                    cuenta_id=cuenta["id"],
+                    producto_id=pid,
+                    precio=precio_base,
+                    listing_type=listing_type,
+                    campaign_tag=campaign_tag,
+                    stock=stock,
+                    meli_item_id=result["item_id"],
+                    titulo=result.get("title", producto["nombre"]),
+                    estado="activo" if result.get("status") == "active" else "borrador",
+                    url=result.get("permalink", ""),
+                )
+                resultados.append({"producto": producto["nombre"], "success": True, "item_id": result["item_id"], "url": result.get("permalink", "")})
+            else:
+                resultados.append({"producto": producto["nombre"], "success": False, "error": result.get("error", "Error desconocido")})
+
+            # Actualizar refresh_token si cambió
+            if client.refresh_token and client.refresh_token != cuenta["refresh_token"]:
+                db.actualizar_cuenta(cuenta["id"], refresh_token=client.refresh_token)
+
+        exitosos = sum(1 for r in resultados if r["success"])
+        fallidos = sum(1 for r in resultados if not r["success"])
+
+        return render_template("publish_masiva_result.html",
+                               resultados=resultados,
+                               exitosos=exitosos,
+                               fallidos=fallidos,
+                               total=total,
+                               page="publicar")
+
+    # GET: mostrar productos con catalog_product_id
+    productos = db.listar_productos_agrupados(cuenta_id=cuenta["id"])
+    # Filtrar solo los que tienen catalog_product_id (pueden publicarse)
+    publicables = [p for p in productos if p.get("catalog_product_id")]
+
+    return render_template("publish_masiva.html",
+                           productos=publicables,
+                           campaign_options=CAMPAIGN_OPTIONS,
+                           page="publicar")
+
+
 @app.route("/publicaciones")
 def publicaciones():
     cuenta = get_active_cuenta()
