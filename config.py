@@ -5,9 +5,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# MercadoLibre API — setea en .env local o en Environment Variables de Render
-ML_CLIENT_ID = os.getenv("ML_CLIENT_ID", "")
-ML_CLIENT_SECRET = os.getenv("ML_CLIENT_SECRET", "")
+# MercadoLibre API — setea en Environment Variables de Render
+# Local: usa creds viejas por defecto; Render: setear ML_CLIENT_ID/SECRET con las nuevas
+ML_CLIENT_ID = os.getenv("ML_CLIENT_ID", "3820687071874406")
+ML_CLIENT_SECRET = os.getenv("ML_CLIENT_SECRET", "crSeIoEp4yQIzZwgoWGVhuE4X0EJpP9Y")
 ML_REFRESH_TOKEN = os.getenv("ML_REFRESH_TOKEN", "")
 ML_SITE_ID = os.getenv("ML_SITE_ID", "MLA")
 
