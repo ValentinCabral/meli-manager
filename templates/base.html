@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MELI Manager{% if page and page != 'dashboard' %} — {{ page|capitalize }}{% endif %}</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,6 +20,7 @@
         ('/publicaciones', 'publicaciones', 'Publicaciones'),
         ('/ventas', 'ventas', 'Ventas'),
         ('/metricas', 'metricas', 'Métricas'),
+        ('/stats', 'stats', 'Estadísticas'),
         ('/publicar', 'publicar', 'Publicar'),
         ('/importar', 'importar', 'Importar'),
         ('/cuentas', 'cuentas', 'Cuentas'),
@@ -39,6 +41,8 @@
         <svg viewBox="0 0 24 24"><rect x="3" y="3" width="4" height="18" rx="1"/><rect x="10" y="8" width="4" height="13" rx="1"/><rect x="17" y="13" width="4" height="8" rx="1"/></svg>
         {% elif id == 'metricas' %}
         <svg viewBox="0 0 24 24"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+        {% elif id == 'stats' %}
+        <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         {% elif id == 'publicar' %}
         <svg viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
         {% elif id == 'importar' %}
@@ -194,5 +198,6 @@
             });
         });
     </script>
+    {% block scripts %}{% endblock %}
 </body>
 </html>

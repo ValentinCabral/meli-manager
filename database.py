@@ -697,6 +697,73 @@ def get_metricas_detalle(cuenta_id):
 
 # ─── Dashboard / Métricas ───────────────────────────────────
 
+# ─── Stats / Analytics ────────────────────────────────────
+
+def get_revenue_mensual(cuenta_id, meses=6):
+    """Revenue agrupado por mes. Devuelve [{mes, total, comisiones}]."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT strftime('%Y-%m', date_created) as mes,
+               ROUND(SUM(total_paid_amount), 2) as total,
+               ROUND(SUM(COALESCE(marketplace_fee, 0)), 2) as comisiones
+        FROM ordenes
+        WHERE cuenta_id = ? AND status = 'paid'
+          AND date_created >= date('now', '-' || ? || ' months')
+        GROUP BY strftime('%Y-%m', date_created)
+        ORDER BY mes
+    """, (cuenta_id, meses)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_top_productos(cuenta_id, limit=5):
+    """Top N productos por revenue real."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT oi.item_title as producto,
+               SUM(oi.quantity) as unidades,
+               ROUND(SUM(oi.total_amount), 2) as revenue
+        FROM orden_items oi
+        JOIN ordenes o ON o.id = oi.orden_id
+        WHERE o.cuenta_id = ? AND o.status = 'paid'
+        GROUP BY oi.meli_item_id
+        ORDER BY revenue DESC
+        LIMIT ?
+    """, (cuenta_id, limit)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_stats_resumen(cuenta_id):
+    """Resumen de stats: este mes, mes anterior, fees total."""
+    conn = get_db()
+    # Este mes
+    row = conn.execute("""
+        SELECT COALESCE(SUM(total_paid_amount), 0) as revenue,
+               COALESCE(SUM(marketplace_fee), 0) as fees,
+               COUNT(*) as ordenes
+        FROM ordenes
+        WHERE cuenta_id = ?
+          AND status = 'paid'
+          AND strftime('%Y-%m', date_created) = strftime('%Y-%m', 'now')
+    """, (cuenta_id,)).fetchone()
+    actual = dict(row)
+
+    # Mes anterior
+    row = conn.execute("""
+        SELECT COALESCE(SUM(total_paid_amount), 0) as revenue,
+               COUNT(*) as ordenes
+        FROM ordenes
+        WHERE cuenta_id = ?
+          AND status = 'paid'
+          AND strftime('%Y-%m', date_created) = strftime('%Y-%m', 'now', '-1 month')
+    """, (cuenta_id,)).fetchone()
+    anterior = dict(row)
+
+    conn.close()
+    return {"actual": actual, "anterior": anterior}
+
+
 def get_metricas(cuenta_id=None):
     conn = get_db()
 

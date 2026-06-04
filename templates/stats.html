@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="section-header">
+    <h1 class="section-title">📊 Estadísticas</h1>
+</div>
+
+{% if not meses %}
+<div class="card" style="text-align: center; padding: 64px;">
+    <p style="font-size: 48px; margin-bottom: 12px;">📊</p>
+    <p style="font-weight: 600;">Sincronizá órdenes para ver estadísticas</p>
+    <a href="{{ url_for('meli_sync_orders') }}" class="btn btn-primary" style="margin-top: 12px;">
+        📥 Sync Orders
+    </a>
+</div>
+{% else %}
+
+<!-- Summary Cards -->
+<div class="grid-3" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
+    <div class="card">
+        <p class="text-sm" style="color: var(--color-on-surface-variant);">Revenue este mes</p>
+        <p class="text-2xl font-bold" style="color: var(--color-primary);">${{ '{:,.0f}'.format(resumen.actual.revenue) }}</p>
+        <p class="text-sm" style="color: {{ 'var(--color-success)' if variacion >= 0 else 'var(--color-error)' }};">
+            {% if variacion >= 0 %}▲{% else %}▼{% endif %} {{ '%.1f'|format(variacion) }}% vs mes anterior
+        </p>
+    </div>
+    <div class="card">
+        <p class="text-sm" style="color: var(--color-on-surface-variant);">Comisiones MELI</p>
+        <p class="text-2xl font-bold" style="color: var(--color-warning);">${{ '{:,.0f}'.format(resumen.actual.fees) }}</p>
+        <p class="text-sm" style="color: var(--color-on-surface-variant);">
+            {{ '%.1f'|format((resumen.actual.fees / resumen.actual.revenue * 100) if resumen.actual.revenue > 0 else 0) }}% del revenue
+        </p>
+    </div>
+    <div class="card">
+        <p class="text-sm" style="color: var(--color-on-surface-variant);">Órdenes este mes</p>
+        <p class="text-2xl font-bold" style="color: var(--color-success);">{{ resumen.actual.ordenes }}</p>
+        <p class="text-sm" style="color: var(--color-on-surface-variant);">
+            {% if resumen.anterior.ordenes > 0 %}
+            {{ '%.1f'|format((resumen.actual.ordenes - resumen.anterior.ordenes) / resumen.anterior.ordenes * 100) }}% vs mes anterior
+            {% else %}vs {{ resumen.anterior.ordenes }} mes anterior{% endif %}
+        </p>
+    </div>
+</div>
+
+<!-- Revenue Chart -->
+<div class="card" style="margin-bottom: 24px;">
+    <div class="card-header">
+        <h2 class="card-title">Revenue Mensual</h2>
+    </div>
+    <div style="padding: 16px;">
+        <canvas id="revenueChart" height="250"></canvas>
+    </div>
+</div>
+
+<!-- Top Productos -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Top Productos</h2>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Producto</th>
+                    <th style="text-align: right;">Unidades</th>
+                    <th style="text-align: right;">Revenue</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in top %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td>{{ p.producto }}</td>
+                    <td style="text-align: right;">{{ p.unidades }}</td>
+                    <td style="text-align: right; font-weight: 600;">${{ '{:,.0f}'.format(p.revenue) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const ctx = document.getElementById('revenueChart');
+    if (!ctx) return;
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: {{ meses|map(attribute='mes')|list|tojson }},
+            datasets: [{
+                label: 'Revenue',
+                data: {{ meses|map(attribute='total')|list|tojson }},
+                backgroundColor: 'rgba(26, 115, 232, 0.7)',
+                borderColor: '#1a73e8',
+                borderWidth: 1
+            }, {
+                label: 'Comisiones',
+                data: {{ meses|map(attribute='comisiones')|list|tojson }},
+                backgroundColor: 'rgba(251, 188, 4, 0.7)',
+                borderColor: '#fbbc04',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { position: 'top' } },
+            scales: {
+                y: { beginAtZero: true, ticks: { callback: v => '$' + v.toLocaleString('es-AR') } }
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

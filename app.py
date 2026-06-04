@@ -4,6 +4,7 @@ import io
 import os
 import csv
 import json
+import secrets
 from datetime import datetime
 
 from flask import (Flask, render_template, request, redirect,
@@ -141,7 +142,8 @@ def cuenta_eliminar(cid):
 @app.route("/auth/meli/login")
 def auth_meli_login():
     """Redirige al usuario a la pantalla de autorización de MELI."""
-    state = "meli-manager-local"  # En producción usar un token aleatorio
+    state = secrets.token_hex(32)  # token aleatorio como Dropdeal
+    session["oauth_state"] = state
     url = meli.MeliClient.get_auth_url(MELI_REDIRECT_URI, state)
     return redirect(url)
 
@@ -151,6 +153,13 @@ def auth_meli_callback():
     """Callback de OAuth: recibe el code y lo intercambia por tokens."""
     code = request.args.get("code")
     error = request.args.get("error")
+    state = request.args.get("state")
+
+    # Validar state anti-CSRF (como hace Dropdeal)
+    expected_state = session.pop("oauth_state", None)
+    if state and expected_state and state != expected_state:
+        flash("❌ Error de seguridad: state inválido", "danger")
+        return redirect(url_for("cuentas"))
 
     if error:
         flash(f"❌ Autorización cancelada: {error}", "warning")
@@ -502,6 +511,32 @@ def metricas():
     return render_template("metricas.html",
                            metricas=metricas_rows,
                            page="metricas")
+
+
+# ─── Stats / Analytics ─────────────────────────────────────
+
+@app.route("/stats")
+def stats():
+    cuenta = get_active_cuenta()
+    if not cuenta:
+        flash("Conectá una cuenta primero", "warning")
+        return redirect(url_for("cuentas"))
+
+    meses = db.get_revenue_mensual(cuenta["id"])
+    top = db.get_top_productos(cuenta["id"])
+    resumen = db.get_stats_resumen(cuenta["id"])
+
+    # Calcular variación porcentual
+    act = resumen["actual"]["revenue"]
+    ant = resumen["anterior"]["revenue"]
+    variacion = ((act - ant) / ant * 100) if ant > 0 else 0
+
+    return render_template("stats.html",
+                           meses=meses,
+                           top=top,
+                           resumen=resumen,
+                           variacion=variacion,
+                           page="stats")
 
 
 # ─── Ventas ──────────────────────────────────────────────────
