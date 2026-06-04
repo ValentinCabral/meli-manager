@@ -573,7 +573,10 @@ class MeliClient:
     # ─── Visitas ────────────────────────────────────────────
 
     def sync_all_visits(self, item_ids: list) -> dict:
-        """Obtiene visitas totales llamando GET /items/{id}/visits?last_unit=total.
+        """Obtiene visitas totales llamando GET /visits/items?ids={id} por item.
+
+        El endpoint oficial es /visits/items?ids=$ITEM_ID (un ID por llamada).
+        Responde con: {"MLA123": 552}
 
         Args:
             item_ids: Lista de IDs de MELI (ej: ['MLA123', 'MLA456'])
@@ -583,28 +586,27 @@ class MeliClient:
         """
         self._ensure_token()
         all_visits = {}
-        import time
 
         for item_id in item_ids:
             try:
                 resp = requests.get(
-                    f"{self.BASE_URL}/items/{item_id}/visits",
+                    f"{self.BASE_URL}/visits/items",
                     headers=self._headers(),
-                    params={"last_unit": "total"},
+                    params={"ids": item_id},
                     timeout=15,
                 )
                 if resp.status_code == 403:
                     continue  # sin scope
                 resp.raise_for_status()
                 data = resp.json()
-                # La respuesta es un dict con total_visits
-                if isinstance(data, dict):
-                    total = data.get("total_visits", 0)
+                # Respuesta: {"MLA123": 552}
+                if isinstance(data, dict) and item_id in data:
+                    total = data.get(item_id, 0)
                     all_visits[item_id] = total if total is not None else 0
             except requests.HTTPError:
                 continue
 
-            # Pequeña pausa para no rate-limit
+            # Pausa para no rate-limit
             if len(item_ids) > 10:
                 time.sleep(0.3)
 
