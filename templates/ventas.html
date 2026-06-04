@@ -7,7 +7,7 @@
 
 <!-- Filter Form -->
 <form method="GET" action="{{ url_for('ventas') }}" class="card mb-6">
-    <div style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;">
+    <div class="flex items-end gap-4 flex-wrap">
         <div class="form-group" style="flex: 1; min-width: 160px; margin-bottom: 0;">
             <label class="form-label">Fecha desde</label>
             <input type="date" name="fecha_desde" class="input-field" value="{{ fecha_desde }}">
