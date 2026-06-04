@@ -163,7 +163,7 @@ def init_db():
     try:
         cursor.execute("SELECT usuario_id FROM cuentas_meli LIMIT 1")
     except sqlite3.OperationalError:
-        cursor.execute("ALTER TABLE cuentas_meli ADD COLUMN usuario_id INTEGER DEFAULT 1 REFERENCES usuarios(id)")
+        cursor.execute("ALTER TABLE cuentas_meli ADD COLUMN usuario_id INTEGER DEFAULT 1")
 
     # Seed: crear cuenta default desde .env si no hay ninguna cuenta
     cuenta_default = cursor.execute("SELECT COUNT(*) as c FROM cuentas_meli").fetchone()["c"]
