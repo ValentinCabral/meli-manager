@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="section-header">
+    <h1 class="section-title">🛒 Publicaciones</h1>
+    <a href="{{ url_for('publicar') }}" class="btn btn-primary">
+        🚀 Nueva Publicación
+    </a>
+</div>
+
+<!-- Búsqueda -->
+<form method="GET" class="mb-6">
+    <div class="flex gap-2">
+        <input type="text" name="search" value="{{ search }}"
+               placeholder="Buscar por título, producto o ID de MELI..."
+               class="input-field">
+        <button type="submit" class="btn btn-primary">
+            🔍 Buscar
+        </button>
+        {% if search %}
+        <a href="{{ url_for('publicaciones') }}" class="btn btn-secondary">
+            ✕ Limpiar
+        </a>
+        {% endif %}
+    </div>
+</form>
+
+{% if publicaciones %}
+<div class="card" style="padding: 0; overflow: hidden;">
+    <div class="overflow-x-auto">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="text-align: left;">Producto</th>
+                    <th style="text-align: left;">MELI ID</th>
+                    <th style="text-align: right;">Precio</th>
+                    <th style="text-align: center;">Tipo</th>
+                    <th style="text-align: center;">Estado</th>
+                    <th style="text-align: right;">Stock</th>
+                    <th style="text-align: right;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for pub in publicaciones %}
+                <tr>
+                    <td>
+                        <p style="font-weight: 500; margin: 0;">{{ pub.producto_nombre or '—' }}</p>
+                        <p style="font-size: 12px; color: var(--color-on-surface-variant); opacity: 0.7; margin: 2px 0 0 0;">{{ pub.producto_sku or '' }}</p>
+                    </td>
+                    <td style="font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px;">
+                        {% if pub.meli_item_id %}
+                        <a href="{{ pub.url or '#' }}" target="_blank" style="color: var(--color-primary);">
+                            {{ pub.meli_item_id }}
+                        </a>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td style="text-align: right; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-weight: 600;">${{ '{:,.0f}'.format(pub.precio) }}</td>
+                    <td style="text-align: center;">
+                        {% if pub.listing_type == 'gold_pro' %}
+                        <span class="badge badge-info">{{ pub.listing_type }}</span>
+                        {% else %}
+                        <span class="badge badge-neutral">{{ pub.listing_type }}</span>
+                        {% endif %}
+                    </td>
+                    <td style="text-align: center;">
+                        {% if pub.estado == 'activo' %}
+                        <span class="badge badge-success">● Activo</span>
+                        {% elif pub.estado == 'pausado' %}
+                        <span class="badge badge-warning">● Pausado</span>
+                        {% elif pub.estado == 'borrador' %}
+                        <span class="badge badge-neutral">○ Borrador</span>
+                        {% else %}
+                        <span class="badge badge-error">● {{ pub.estado }}</span>
+                        {% endif %}
+                    </td>
+                    <td style="text-align: right;">{{ pub.stock }}</td>
+                    <td style="text-align: right;">
+                        <div class="flex items-center justify-end gap-2">
+                            {% if pub.estado == 'activo' %}
+                            <form method="POST" action="{{ url_for('publicacion_accion', pid=pub.id) }}" class="inline">
+                                <input type="hidden" name="accion" value="pausar">
+                                <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--color-warning);">⏸️</button>
+                            </form>
+                            {% elif pub.estado == 'pausado' %}
+                            <form method="POST" action="{{ url_for('publicacion_accion', pid=pub.id) }}" class="inline">
+                                <input type="hidden" name="accion" value="activar">
+                                <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--color-success);">▶️</button>
+                            </form>
+                            {% endif %}
+                            <!-- Formulario inline para actualizar precio -->
+                            <form method="POST" action="{{ url_for('publicacion_accion', pid=pub.id) }}"
+                                  class="inline-flex items-center gap-1"
+                                  onsubmit="return confirm('¿Actualizar precio a $' + this.querySelector('[name=precio]').value + '?')">
+                                <input type="hidden" name="accion" value="actualizar_precio">
+                                <input type="number" name="precio" step="100" value="{{ pub.precio }}"
+                                       class="input-field" style="width: 80px; height: 28px; font-size: 11px; padding: 0 6px;">
+                                <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--color-primary);">💾</button>
+                            </form>
+                            <!-- Eliminar -->
+                            <form method="POST" action="{{ url_for('publicacion_accion', pid=pub.id) }}" class="inline"
+                                  onsubmit="return confirm('¿Eliminar publicación {{ pub.meli_item_id or '' }}?')">
+                                <input type="hidden" name="accion" value="eliminar">
+                                <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--color-error);">🗑️</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card" style="text-align: center; padding: 64px 24px;">
+    <div style="font-size: 48px; margin-bottom: 12px; opacity: 0.5;">🛒</div>
+    <p style="font-weight: 600; font-size: 16px; color: var(--color-on-surface); margin-bottom: 8px;">
+        {% if search %}No se encontraron publicaciones para "{{ search }}"{% else %}Todavía no hay publicaciones{% endif %}
+    </p>
+    {% if not search %}
+    <a href="{{ url_for('publicar') }}" class="btn btn-primary" style="margin-top: 8px;">
+        🚀 Publicar en MELI
+    </a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}

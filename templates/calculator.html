@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="section-header">
+    <h1 class="section-title">🧮 Calculadora de Publicaciones</h1>
+    <a href="{{ url_for('publicar') }}" class="btn btn-primary">
+        🚀 Ir a Publicar
+    </a>
+</div>
+
+<div class="grid-2-1">
+    <!-- Formulario -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Parámetros</h2>
+        </div>
+        <form method="POST" id="calc-form">
+            <div class="space-y-4">
+                <div class="form-group">
+                    <label class="form-label">💰 Costo del producto</label>
+                    <div class="input-wrapper">
+                        <span class="input-prefix">$</span>
+                        <input type="number" name="costo" step="0.01" min="0" value="{{ costo }}"
+                               class="input-field" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Modo de cálculo</label>
+                    <div class="flex gap-3" style="margin-top: 6px;">
+                        <label class="flex items-center gap-2" style="cursor: pointer;">
+                            <input type="radio" name="modo" value="margen"
+                                   {{ 'checked' if modo == 'margen' }}
+                                   onchange="toggleModo()"
+                                   style="accent-color: var(--color-primary);">
+                            <span style="font-size: 14px;">Por margen</span>
+                        </label>
+                        <label class="flex items-center gap-2" style="cursor: pointer;">
+                            <input type="radio" name="modo" value="garantizado"
+                                   {{ 'checked' if modo == 'garantizado' }}
+                                   onchange="toggleModo()"
+                                   style="accent-color: var(--color-primary);">
+                            <span style="font-size: 14px;">Ganancia mínima</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="margen-field" class="form-group">
+                    <label class="form-label">📈 Margen deseado (%)</label>
+                    <input type="number" name="margen" step="0.1" min="0" value="{{ margen }}"
+                           class="input-field">
+                </div>
+
+                <div id="ganancia-field" class="form-group {{ 'hidden' if modo != 'garantizado' }}">
+                    <label class="form-label">🎯 Ganancia neta mínima ($)</label>
+                    <input type="number" name="ganancia_minima" step="0.01" min="0"
+                           class="input-field">
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block btn-lg">
+                    🔄 Calcular
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Resultados -->
+    <div>
+        {% if resultados %}
+        <div class="card" style="padding: 0; overflow: hidden;">
+            <div style="padding: 16px 20px; border-bottom: 1px solid var(--color-table-divider);">
+                <h2 class="card-title" style="margin: 0;">
+                    📊 Resultados
+                    <span style="font-weight: 400; font-size: 14px; color: var(--color-on-surface-variant); margin-left: 8px;">({{ resultados|length }} combinaciones)</span>
+                </h2>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="text-align: left;">Tipo</th>
+                            <th style="text-align: left;">Cuotas</th>
+                            <th style="text-align: right;">Comisión</th>
+                            <th style="text-align: right;">Precio Venta</th>
+                            <th style="text-align: right;">Ganancia Neta</th>
+                            <th style="text-align: center;">Margen Real</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in resultados %}
+                        <tr>
+                            <td>
+                                {% if r.listing_type == 'gold_pro' %}
+                                <span class="badge badge-info">{{ '⭐ gold_pro' }}</span>
+                                {% else %}
+                                <span class="badge badge-neutral">{{ '🟢 gold_special' }}</span>
+                                {% endif %}
+                            </td>
+                            <td style="color: var(--color-on-surface-variant);">{{ r.campaign_label }}</td>
+                            <td style="text-align: right; font-family: 'JetBrains Mono', 'Fira Code', monospace;">{{ r.fee_rate }}%</td>
+                            <td style="text-align: right; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-weight: 600;">
+                                ${{ '{:,.0f}'.format(r.precio_venta) }}
+                            </td>
+                            <td style="text-align: right; font-family: 'JetBrains Mono', 'Fira Code', monospace; {% if r.ganancia_neta > 0 %}color: var(--color-success){% else %}color: var(--color-error){% endif %};">
+                                ${{ '{:,.0f}'.format(r.ganancia_neta) }}
+                            </td>
+                            <td style="text-align: center; font-family: 'JetBrains Mono', 'Fira Code', monospace;">
+                                {{ r.margen_real }}%
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% else %}
+        <div class="card" style="text-align: center; padding: 48px 24px;">
+            <div style="font-size: 48px; margin-bottom: 12px; opacity: 0.5;">🧮</div>
+            <p style="font-size: 16px; color: var(--color-on-surface-variant); margin-bottom: 8px;">Ingresá el costo y calculá</p>
+            <p style="font-size: 14px; color: var(--color-on-surface-variant); opacity: 0.7;">Mostramos todas las combinaciones de tipo + cuotas</p>
+            <div class="grid-2" style="max-width: 400px; margin: 24px auto 0; gap: 12px;">
+                <div style="background: var(--color-primary-container); border-radius: var(--radius-md); padding: 12px; text-align: left;">
+                    <p style="font-weight: 600; font-size: 11px; color: var(--color-primary); margin: 0 0 4px 0;">gold_special</p>
+                    <p style="font-size: 12px; color: var(--color-primary); opacity: 0.8; margin: 0;">12.77% comisión</p>
+                    <p style="font-size: 11px; color: var(--color-primary); opacity: 0.6; margin: 0;">Sin cuotas</p>
+                </div>
+                <div style="background: #f3e8ff; border-radius: var(--radius-md); padding: 12px; text-align: left;">
+                    <p style="font-weight: 600; font-size: 11px; color: #7c3aed; margin: 0 0 4px 0;">gold_pro</p>
+                    <p style="font-size: 12px; color: #7c3aed; opacity: 0.8; margin: 0;">21.17% a 31.97%</p>
+                    <p style="font-size: 11px; color: #7c3aed; opacity: 0.6; margin: 0;">3 a 12 cuotas</p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function toggleModo() {
+    const modo = document.querySelector('input[name="modo"]:checked').value;
+    document.getElementById('margen-field').classList.toggle('hidden', modo !== 'margen');
+    document.getElementById('ganancia-field').classList.toggle('hidden', modo !== 'garantizado');
+}
+</script>
+
+{% endblock %}

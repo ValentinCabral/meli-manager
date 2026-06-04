@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- Métricas -->
+<div class="grid-6 mb-8">
+    {% set cards = [
+        ('📦', 'Productos', metricas.total_productos, '#1a73e8'),
+        ('📱', 'Publicaciones', metricas.total_publicaciones, '#10b981'),
+        ('📊', 'Stock Total', metricas.stock_total, '#6366f1'),
+        ('⚠️', 'Stock Bajo', metricas.stock_bajo, '#ef4444'),
+        ('💰', 'Costo Inventario', '$' + '{:,.0f}'.format(metricas.valor_inventario), '#059669'),
+    ] %}
+    {% for icon, label, value, color in cards %}
+    <div class="metric-card">
+        <p class="metric-label">{{ label }}</p>
+        <p class="metric-value" style="color: {{ color }};">{{ value }}</p>
+    </div>
+    {% endfor %}
+
+    <!-- Revenue Real Card -->
+    <div class="metric-card" style="display: flex; flex-direction: column; justify-content: center;">
+        <p class="metric-label">💰 Revenue Real</p>
+        {% if metricas.valor_venta_meli > 0 %}
+        <p class="metric-value" style="color: #d97706;">${{ '{:,.0f}'.format(metricas.valor_venta_meli) }}</p>
+        {% else %}
+        <p style="font-size: 12px; color: var(--color-on-surface-variant); margin: 4px 0 0 0;">
+            Sincronizá órdenes para ver revenue real
+        </p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Conexión MELI + Acciones Rápidas -->
+<div class="grid-2-1 mb-8">
+    <!-- Cuenta Activa -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">🔗 Cuenta Activa</h2>
+        </div>
+        {% if cuenta %}
+        <div style="background: var(--color-primary-container); border-radius: var(--radius-md); padding: 16px; display: flex; align-items: center; gap: 12px;">
+            <span style="width: 40px; height: 40px; border-radius: 50%; background: var(--color-primary); display: flex; align-items: center; justify-content: center; color: white; font-size: 18px;">👤</span>
+            <div style="flex: 1;">
+                <p style="font-weight: 600; color: var(--color-on-surface); margin: 0;">
+                    <strong>{{ cuenta.nickname }}</strong>
+                    {% if session.get('meli_connected') %}
+                    <span class="badge badge-success" style="margin-left: 8px;">● Conectado</span>
+                    {% else %}
+                    <span class="badge badge-warning" style="margin-left: 8px;">● Sin conexión</span>
+                    {% endif %}
+                </p>
+                <p style="font-size: 14px; color: var(--color-on-surface-variant); margin: 2px 0 0 0;">
+                    {% if session.get('meli_nickname') %}
+                    {{ session['meli_nickname'] }}
+                    {% else %}
+                    ID: {{ cuenta.user_id or '—' }}
+                    {% endif %}
+                </p>
+            </div>
+            <div class="flex gap-2">
+                <a href="{{ url_for('meli_sync') }}" class="btn btn-primary btn-sm">📥 Sync</a>
+                <a href="{{ url_for('meli_check') }}" class="btn btn-secondary btn-sm">🔄 Verificar</a>
+            </div>
+        </div>
+        {% if cuentas and cuentas|length > 1 %}
+        <div style="margin-top: 12px; font-size: 13px; color: var(--color-on-surface-variant);">
+            <span>{{ cuentas|length }} cuentas conectadas — </span>
+            <a href="{{ url_for('cuentas') }}" style="color: var(--color-primary);">Gestionar cuentas</a>
+        </div>
+        {% endif %}
+        {% else %}
+        <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-md); padding: 16px; margin-bottom: 16px;">
+            <p style="color: #92400e; margin: 0; font-size: 14px;">No hay cuentas configuradas</p>
+        </div>
+        <a href="{{ url_for('cuentas') }}" class="btn btn-accent">
+            🔗 Conectar cuenta de MercadoLibre
+        </a>
+        {% endif %}
+    </div>
+
+    <!-- Acciones Rápidas -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">⚡ Acciones Rápidas</h2>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+            <a href="{{ url_for('producto_nuevo') }}"
+               class="btn btn-ghost" style="justify-content: flex-start; padding: 10px 14px;">
+                <span>➕</span>
+                <span>Nuevo Producto</span>
+            </a>
+            <a href="{{ url_for('calculadora') }}"
+               class="btn btn-ghost" style="justify-content: flex-start; padding: 10px 14px;">
+                <span>🧮</span>
+                <span>Calcular Precio</span>
+            </a>
+            <a href="{{ url_for('importar') }}"
+               class="btn btn-ghost" style="justify-content: flex-start; padding: 10px 14px;">
+                <span>📥</span>
+                <span>Importar Productos</span>
+            </a>
+            <a href="{{ url_for('publicar') }}"
+               class="btn btn-ghost" style="justify-content: flex-start; padding: 10px 14px;">
+                <span>🚀</span>
+                <span>Publicar en MELI</span>
+            </a>
+            <a href="{{ url_for('meli_sync_orders') }}"
+               class="btn btn-accent" style="justify-content: flex-start; padding: 10px 14px;">
+                <span>📥</span>
+                <span>Sync Orders</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Últimas Publicaciones -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">🛒 Últimas Publicaciones</h2>
+        <a href="{{ url_for('publicaciones') }}" style="color: var(--color-primary); font-size: 14px;">Ver todas →</a>
+    </div>
+
+    {% if publicaciones %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Producto</th>
+                <th>Precio</th>
+                <th>Stock</th>
+                <th>Estado</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for pub in publicaciones %}
+            <tr>
+                <td>
+                    <span style="font-weight: 500;">{{ pub.producto_nombre or pub.titulo|truncate(40) }}</span>
+                    {% if pub.meli_item_id %}
+                    <span style="font-size: 11px; color: var(--color-on-surface-variant); display: block;">{{ pub.meli_item_id }}</span>
+                    {% endif %}
+                </td>
+                <td>${{ '{:,.0f}'.format(pub.precio) }}</td>
+                <td>{{ pub.stock }}</td>
+                <td>
+                    {% if pub.estado in ('active', 'activo') %}
+                    <span class="badge badge-success">● Activo</span>
+                    {% elif pub.estado == 'pausado' %}
+                    <span class="badge badge-warning">● Pausado</span>
+                    {% else %}
+                    <span class="badge badge-secondary">● {{ pub.estado }}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon">📭</div>
+        <p class="empty-state-desc">Todavía no hay publicaciones</p>
+        <a href="{{ url_for('publicar') }}" class="btn btn-primary">
+            Publicá tu primer producto →
+        </a>
+    </div>
+    {% endif %}
+</div>
+
+{% endblock %}

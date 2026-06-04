@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MELI Manager{% if page and page != 'dashboard' %} — {{ page|capitalize }}{% endif %}</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body class="app-layout">
+
+    {% set nav_items = [
+        ('/', 'dashboard', 'Dashboard'),
+        ('/productos', 'productos', 'Productos'),
+        ('/calculadora', 'calculadora', 'Calculadora'),
+        ('/publicaciones', 'publicaciones', 'Publicaciones'),
+        ('/ventas', 'ventas', 'Ventas'),
+        ('/publicar', 'publicar', 'Publicar'),
+        ('/importar', 'importar', 'Importar'),
+        ('/cuentas', 'cuentas', 'Cuentas'),
+        ('/config', 'config', 'Configuración'),
+    ] %}
+
+    {% macro nav_icon(id) %}
+    <span class="nav-icon">
+        {% if id == 'dashboard' %}
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        {% elif id == 'productos' %}
+        <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+        {% elif id == 'calculadora' %}
+        <svg viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="8" y2="10"/><line x1="12" y1="10" x2="12" y2="10"/><line x1="16" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="8" y2="14"/><line x1="12" y1="14" x2="12" y2="14"/><line x1="16" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="8" y2="18"/><line x1="12" y1="18" x2="12"y2="18"/><line x1="16" y1="18" x2="16" y2="18"/></svg>
+        {% elif id == 'publicaciones' %}
+        <svg viewBox="0 0 24 24"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7" y2="7"/></svg>
+        {% elif id == 'ventas' %}
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="4" height="18" rx="1"/><rect x="10" y="8" width="4" height="13" rx="1"/><rect x="17" y="13" width="4" height="8" rx="1"/></svg>
+        {% elif id == 'publicar' %}
+        <svg viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+        {% elif id == 'importar' %}
+        <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        {% elif id == 'cuentas' %}
+        <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        {% elif id == 'config' %}
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        {% endif %}
+    </span>
+    {% endmacro %}
+
+    <!-- Sidebar (fixed left, 260px) -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-logo">
+            <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="MELI Manager" width="140" height="40">
+        </div>
+
+        <nav class="sidebar-nav">
+            {% for href, id, label in nav_items %}
+            <a href="{{ href }}" class="nav-item{% if page == id %} active{% endif %}">
+                {{ nav_icon(id) }}
+                <span>{{ label }}</span>
+            </a>
+            {% endfor %}
+        </nav>
+
+        <!-- Sidebar Footer: Account Switcher -->
+        <div class="sidebar-footer">
+            {% if cuentas is defined and cuentas|length > 1 %}
+            <div class="relative" x-data="{ open: false }">
+                <button @click="open = !open" class="btn btn-secondary btn-sm w-full flex items-center justify-between gap-2" style="padding: 8px 12px;">
+                    <div class="flex items-center gap-2">
+                        <span class="status-dot {{ 'success' if cuenta and cuenta.active else 'error' }}"></span>
+                        <span class="text-sm truncate">{{ cuenta.nickname|truncate(15) if cuenta else 'Sin cuenta' }}</span>
+                    </div>
+                    <svg class="w-3 h-3" style="flex-shrink:0; color: var(--color-on-surface-variant);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+                <div x-show="open" @click.away="open = false" class="acuenta-dropdown">
+                    <div style="padding: 6px;">
+                        <p class="text-xs font-semibold" style="color: var(--color-on-surface-variant); padding: 6px 10px 4px; letter-spacing: 0.05em;">CUENTAS</p>
+                        {% for c in cuentas %}
+                        <a href="{{ url_for('cuenta_activar', cid=c.id) }}"
+                           class="acuenta-item{% if cuenta and cuenta.id == c.id %} active{% endif %}">
+                            <span class="status-dot {{ 'success' if c.active else 'neutral' }}"></span>
+                            <span class="flex-1 truncate">{{ c.nickname }}</span>
+                            {% if c.active %}<span class="text-xs" style="color: var(--color-primary);">● activa</span>{% endif %}
+                        </a>
+                        {% endfor %}
+                    </div>
+                    <a href="{{ url_for('cuentas') }}" class="acuenta-manage">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                        <span>Gestionar cuentas</span>
+                    </a>
+                </div>
+            </div>
+            {% elif cuentas is defined %}
+            <div class="flex items-center gap-2" style="padding: 8px 12px;">
+                <span class="status-dot {{ 'success' if cuenta and cuenta.active else 'error' }}"></span>
+                <span class="text-sm truncate">{{ cuenta.nickname|truncate(20) if cuenta else 'Sin cuenta' }}</span>
+            </div>
+            {% endif %}
+        </div>
+    </aside>
+
+    <!-- Main content area -->
+    <div class="main-content">
+        <!-- Top bar -->
+        <header class="topbar">
+            <button id="menu-btn" class="btn btn-ghost btn-sm" style="display: none; margin-right: auto;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+                </svg>
+            </button>
+            <div class="flex items-center gap-3">
+                {% if cuenta %}
+                <span class="text-xs" style="color: var(--color-on-surface-variant);">
+                    <span class="status-dot {{ 'success' if cuenta.active else 'error' }}" style="vertical-align: middle; margin-right: 4px;"></span>
+                    {{ cuenta.nickname }}
+                </span>
+                {% endif %}
+                {% if session.get('meli_connected') %}
+                <span class="badge badge-success">Conectado</span>
+                {% endif %}
+            </div>
+        </header>
+
+        <!-- Flash Messages -->
+        <div class="flash-container">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            {% for category, message in messages %}
+            <div class="flash-message flash-{{ category if category in ['success','info','danger','warning'] else 'info' }}">
+                <span>{{ message }}</span>
+                <button onclick="this.parentElement.remove()" class="flash-dismiss">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            {% endfor %}
+            {% endif %}
+            {% endwith %}
+        </div>
+
+        <!-- Page Content -->
+        <div class="page-content">
+            {% block content %}{% endblock %}
+        </div>
+
+        <footer style="text-align: center; color: var(--color-on-surface-variant); font-size: 12px; padding: 24px; opacity: 0.6;">
+            MELI Manager &mdash; Herramienta local para gestión de MercadoLibre
+        </footer>
+    </div>
+
+    <script>
+        document.getElementById('menu-btn')?.addEventListener('click', function() {
+            document.getElementById('sidebar').classList.toggle('open');
+        });
+
+        // Auto-dismiss flash messages after 5s
+        setTimeout(function() {
+            document.querySelectorAll('.flash-message').forEach(function(el) {
+                el.style.transition = 'opacity 0.3s';
+                el.style.opacity = '0';
+                setTimeout(function() { el.remove(); }, 300);
+            });
+        }, 5000);
+
+        // Show hamburger button on narrow screens
+        if (window.innerWidth <= 768) {
+            document.getElementById('menu-btn')?.style.removeProperty('display');
+        }
+        window.addEventListener('resize', function() {
+            var btn = document.getElementById('menu-btn');
+            if (btn) {
+                if (window.innerWidth <= 768) {
+                    btn.style.removeProperty('display');
+                } else {
+                    btn.style.display = 'none';
+                }
+            }
+        });
+
+        // Close sidebar when clicking a nav link on mobile
+        document.querySelectorAll('.sidebar-nav .nav-item').forEach(function(link) {
+            link.addEventListener('click', function() {
+                if (window.innerWidth <= 768) {
+                    document.getElementById('sidebar').classList.remove('open');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

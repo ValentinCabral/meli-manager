@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="section-header">
+    <h1 class="section-title">👤 Cuentas de MercadoLibre</h1>
+    <div class="section-actions">
+        <a href="{{ url_for('auth_meli_login') }}" class="btn btn-accent">
+            🔗 Conectar nueva cuenta
+        </a>
+        <a href="{{ url_for('meli_check') }}" class="btn btn-primary">
+            🔄 Verificar conexión
+        </a>
+        <a href="{{ url_for('meli_sync') }}" class="btn btn-secondary">
+            📥 Sincronizar publicaciones
+        </a>
+    </div>
+</div>
+
+<!-- Cómo funciona OAuth -->
+<div style="background: var(--color-primary-container); border: 1px solid var(--color-primary-fixed); border-radius: var(--radius-md); padding: 20px; margin-bottom: 24px;">
+    <div class="flex items-start gap-3">
+        <span style="font-size: 24px;">🔐</span>
+        <div>
+            <h3 style="font-weight: 600; font-size: 14px; color: var(--color-primary); margin: 0 0 8px 0;">¿Cómo conectar una cuenta?</h3>
+            <ol style="font-size: 13px; color: var(--color-primary); opacity: 0.8; margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 2px;">
+                <li>Hacé clic en <strong>"Conectar nueva cuenta"</strong></li>
+                <li>Te redirige a MercadoLibre para autorizar el acceso</li>
+                <li>Iniciás sesión con la cuenta de MELI que querés conectar</li>
+                <li>Autorizás los permisos y volvés automáticamente</li>
+                <li>La cuenta queda registrada y activa al instante</li>
+            </ol>
+        </div>
+    </div>
+</div>
+
+{% if cuentas %}
+<div style="display: flex; flex-direction: column; gap: 12px;">
+    {% for c in cuentas %}
+    <div class="card" style="padding: 20px;">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <!-- Avatar / Icono -->
+                <div style="width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; {% if c.active %}background: #dcfce7;{% else %}background: var(--color-surface-container);{% endif %}">
+                    {{ '🟢' if c.active else '👤' }}
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h3 style="font-weight: 600; color: var(--color-on-surface); margin: 0;">{{ c.nickname }}</h3>
+                        {% if c.active %}
+                        <span class="badge badge-success">● Activa</span>
+                        {% endif %}
+                    </div>
+                    <div class="flex items-center gap-4" style="margin-top: 4px; font-size: 13px; color: var(--color-on-surface-variant);">
+                        {% if c.user_id %}
+                        <span>ID: {{ c.user_id }}</span>
+                        {% endif %}
+                        <span>{{ c.site_id or 'MLA' }}</span>
+                        <span>{{ c.total_productos }} productos</span>
+                        <span>{{ c.total_publicaciones }} publicaciones</span>
+                    </div>
+                    <div style="font-size: 12px; color: var(--color-on-surface-variant); opacity: 0.7; margin-top: 2px;">
+                        Creada: {{ c.created_at[:10] if c.created_at else '—' }}
+                    </div>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                {% if not c.active %}
+                <a href="{{ url_for('cuenta_activar', cid=c.id) }}" class="btn btn-primary btn-sm">
+                    Activar
+                </a>
+                {% endif %}
+                {% if cuentas|length > 1 %}
+                <form method="POST" action="{{ url_for('cuenta_eliminar', cid=c.id) }}"
+                      onsubmit="return confirm('¿Eliminar la cuenta {{ c.nickname }}? Se borrarán TODOS sus productos y publicaciones.')">
+                    <button type="submit" class="btn btn-secondary btn-sm" style="color: var(--color-error); border-color: #fecaca;">
+                        Eliminar
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Stats -->
+<div class="grid-3" style="margin-top: 24px; gap: 16px;">
+    <div class="card" style="text-align: center; padding: 16px;">
+        <p style="font: 600 24px/32px var(--font-family); color: var(--color-primary); margin: 0 0 4px 0;">{{ cuentas|length }}</p>
+        <p class="text-label-sm" style="margin: 0;">Cuentas conectadas</p>
+    </div>
+    <div class="card" style="text-align: center; padding: 16px;">
+        <p style="font: 600 24px/32px var(--font-family); color: var(--color-success); margin: 0 0 4px 0;">{{ cuentas|sum(attribute='total_productos') }}</p>
+        <p class="text-label-sm" style="margin: 0;">Productos totales</p>
+    </div>
+    <div class="card" style="text-align: center; padding: 16px;">
+        <p style="font: 600 24px/32px var(--font-family); color: #7c3aed; margin: 0 0 4px 0;">{{ cuentas|sum(attribute='total_publicaciones') }}</p>
+        <p class="text-label-sm" style="margin: 0;">Publicaciones activas</p>
+    </div>
+</div>
+
+{% else %}
+<div class="card" style="text-align: center; padding: 64px 24px;">
+    <div style="font-size: 48px; margin-bottom: 12px; opacity: 0.5;">👤</div>
+    <p style="font-weight: 600; font-size: 16px; color: var(--color-on-surface); margin-bottom: 8px;">Todavía no hay cuentas conectadas</p>
+    <p style="font-size: 14px; color: var(--color-on-surface-variant); margin-bottom: 24px;">Conectá tu cuenta de MercadoLibre para empezar a gestionar tus productos</p>
+    <a href="{{ url_for('auth_meli_login') }}" class="btn btn-accent btn-lg">
+        🔗 Conectar cuenta de MercadoLibre
+    </a>
+</div>
+{% endif %}
+
+<!-- Información adicional -->
+<div style="margin-top: 32px; background: var(--color-surface-container-low); border: 1px solid var(--color-outline-variant); border-radius: var(--radius-md); padding: 20px;">
+    <h3 style="font-weight: 600; font-size: 14px; color: var(--color-on-surface); margin: 0 0 8px 0;">ℹ️ ¿Cómo funciona?</h3>
+    <ul style="font-size: 13px; color: var(--color-on-surface-variant); margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 4px;">
+        <li>• Cada cuenta de MercadoLibre se conecta independientemente mediante OAuth</li>
+        <li>• Los productos y publicaciones están separados por cuenta</li>
+        <li>• Podés switchear entre cuentas desde el menú de navegación</li>
+        <li>• Los tokens se guardan en la base de datos local y se refrescan automáticamente</li>
+        <li>• La primer cuenta se crea automáticamente desde las variables de entorno (.env)</li>
+    </ul>
+</div>
+
+{% endblock %}

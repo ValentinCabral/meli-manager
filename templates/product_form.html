@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div style="max-width: 672px; margin: 0 auto;">
+    <div class="section-header">
+        <h1 class="section-title">
+            {% if producto %}✏️ Editar Producto{% else %}➕ Nuevo Producto{% endif %}
+        </h1>
+        <a href="{{ url_for('productos') }}" class="btn btn-ghost">← Volver</a>
+    </div>
+
+    <div class="card">
+        <form method="POST">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div style="grid-column: 1 / -1;" class="form-group">
+                    <label class="form-label">Nombre *</label>
+                    <input type="text" name="nombre" required
+                           value="{{ producto.nombre if producto else '' }}"
+                           class="input-field">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">SKU</label>
+                    <input type="text" name="sku" value="{{ producto.sku if producto else '' }}"
+                           class="input-field">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Marca</label>
+                    <input type="text" name="marca" value="{{ producto.marca if producto else '' }}"
+                           class="input-field">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Modelo</label>
+                    <input type="text" name="modelo" value="{{ producto.modelo if producto else '' }}"
+                           class="input-field">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Color</label>
+                    <input type="text" name="color" value="{{ producto.color if producto else '' }}"
+                           class="input-field">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">💰 Costo ($)</label>
+                    <input type="number" name="costo" step="0.01" min="0"
+                           value="{{ producto.costo if producto else '0' }}"
+                           class="input-field">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">📊 Stock</label>
+                    <input type="number" name="stock" min="0"
+                           value="{{ producto.stock if producto else '0' }}"
+                           class="input-field">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Categoría ID</label>
+                    <input type="text" name="categoria_id"
+                           value="{{ producto.categoria_id if producto else 'MLA1055' }}"
+                           class="input-field">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Catalog Product ID</label>
+                    <input type="text" name="catalog_product_id"
+                           value="{{ producto.catalog_product_id if producto else '' }}"
+                           class="input-field">
+                    <p class="form-hint">ID del producto en el catálogo de MELI</p>
+                </div>
+
+                <div style="grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 12px; padding-top: 16px;">
+                    <a href="{{ url_for('productos') }}" class="btn btn-secondary">
+                        Cancelar
+                    </a>
+                    <button type="submit" class="btn btn-primary">
+                        {% if producto %}💾 Guardar Cambios{% else %}✅ Crear Producto{% endif %}
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}

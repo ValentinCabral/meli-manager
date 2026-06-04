@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="section-header">
+    <h1 class="section-title">🚀 Publicar en MercadoLibre</h1>
+    <a href="{{ url_for('producto_nuevo') }}" class="btn btn-primary">
+        ➕ Nuevo Producto
+    </a>
+</div>
+
+{% if not session.get('meli_connected') %}
+<div class="card" style="text-align: center; background: #fffbeb; border-color: #fde68a;">
+    <p style="font-size: 16px; color: #92400e; margin-bottom: 16px;">🔗 Necesitás conectar con MercadoLibre primero</p>
+    <a href="{{ url_for('meli_check') }}" class="btn btn-accent btn-lg">
+        🔄 Conectar ahora
+    </a>
+</div>
+{% else %}
+<div class="grid-2-1">
+    <!-- Formulario -->
+    <div>
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Datos de la publicación</h2>
+            </div>
+            <form method="POST" action="{{ url_for('publicar') }}">
+                <div class="space-y-4">
+                    <!-- Producto -->
+                    <div class="form-group">
+                        <label class="form-label">📦 Producto</label>
+                        <select name="producto_id" required class="input-field"
+                                onchange="onProductChange(this)">
+                            <option value="">— Seleccionar —</option>
+                            {% for p in productos %}
+                            <option value="{{ p.id }}"
+                                    data-costo="{{ p.costo }}"
+                                    data-catalog="{{ p.catalog_product_id or '' }}"
+                                    data-nombre="{{ p.nombre }}"
+                                    {% if p.publicaciones > 0 %}class="option-haspub"{% endif %}>
+                                {{ p.nombre }}{% if p.sku %} · {{ p.sku }}{% endif %}
+                                {%- if p.publicaciones > 0 %} (ya publicado){% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Precio -->
+                    <div class="form-group">
+                        <label class="form-label">💰 Precio de venta</label>
+                        <div class="input-wrapper">
+                            <span class="input-prefix">$</span>
+                            <input type="number" name="precio" step="0.01" min="0"
+                                   class="input-field" required>
+                        </div>
+                        <p id="costo-info" class="form-hint hidden">Costo: $<span id="costo-valor">0</span></p>
+                    </div>
+
+                    <!-- Tipo de listing -->
+                    <div class="form-group">
+                        <label class="form-label">⭐ Tipo</label>
+                        <select name="listing_type" required class="input-field"
+                                onchange="onListingTypeChange(this)">
+                            <option value="gold_special">🟢 gold_special — Sin cuotas (12.77%)</option>
+                            <option value="gold_pro">⭐ gold_pro — Cuotas sin interés</option>
+                        </select>
+                    </div>
+
+                    <!-- Campaign -->
+                    <div id="campaign-group" class="form-group">
+                        <label class="form-label">🏷️ Campaña</label>
+                        <select name="campaign_tag" class="input-field">
+                            <option value="">— Sin campaña —</option>
+                        </select>
+                    </div>
+
+                    <!-- Stock -->
+                    <div class="form-group">
+                        <label class="form-label">📊 Stock</label>
+                        <input type="number" name="stock" min="1" value="1" class="input-field">
+                    </div>
+
+                    <!-- Family Name (solo catálogo) -->
+                    <div class="form-group">
+                        <label class="form-label">🏷️ Family Name</label>
+                        <input type="text" name="family_name" placeholder="Ej: Motorola Liberado Moto G06"
+                               class="input-field">
+                        <p class="form-hint">Requerido para catalog_listing en celulares</p>
+                    </div>
+
+                    <!-- Catalog Product ID (read only) -->
+                    <div id="catalog-info" class="form-group hidden">
+                        <label class="form-label" style="font-size: 12px; color: var(--color-on-surface-variant);">Catalog Product ID</label>
+                        <p id="catalog-pid-display" style="font-family: 'JetBrains Mono', 'Fira Code', monospace; margin: 0;">—</p>
+                    </div>
+
+                    <button type="submit" class="btn btn-accent btn-block btn-lg">
+                        🚀 Publicar en MELI
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Calculadora rápida -->
+        <div class="card" style="margin-top: 16px; background: var(--color-primary-container); border-color: var(--color-primary-fixed);">
+            <h3 style="font-weight: 600; font-size: 14px; color: var(--color-primary); margin: 0 0 8px 0;">💡 ¿No sabés qué precio poner?</h3>
+            <p style="font-size: 13px; color: var(--color-primary); opacity: 0.8; margin-bottom: 12px;">Usá la calculadora para encontrar el precio ideal según tu margen.</p>
+            <a href="{{ url_for('calculadora') }}" class="btn btn-primary btn-sm">
+                🧮 Abrir calculadora
+            </a>
+        </div>
+    </div>
+
+    <!-- Instrucciones -->
+    <div>
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">📋 Cómo publicar</h2>
+            </div>
+            <ol style="display: flex; flex-direction: column; gap: 12px; padding: 0; margin: 0; list-style: none;">
+                <li class="flex items-start gap-3">
+                    <span style="flex-shrink: 0; width: 24px; height: 24px; background: var(--color-primary-container); color: var(--color-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;">1</span>
+                    <span style="font-size: 14px; color: var(--color-on-surface-variant);">Seleccioná un <strong>producto</strong> de tu lista (o crealo primero en Productos)</span>
+                </li>
+                <li class="flex items-start gap-3">
+                    <span style="flex-shrink: 0; width: 24px; height: 24px; background: var(--color-primary-container); color: var(--color-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;">2</span>
+                    <span style="font-size: 14px; color: var(--color-on-surface-variant);">Definí el <strong>precio de venta</strong> — usá la calculadora si necesitás</span>
+                </li>
+                <li class="flex items-start gap-3">
+                    <span style="flex-shrink: 0; width: 24px; height: 24px; background: var(--color-primary-container); color: var(--color-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;">3</span>
+                    <span style="font-size: 14px; color: var(--color-on-surface-variant);">Elegí entre <strong>gold_special</strong> (sin cuotas, 12.77%) o <strong>gold_pro</strong> (cuotas sin interés)</span>
+                </li>
+                <li class="flex items-start gap-3">
+                    <span style="flex-shrink: 0; width: 24px; height: 24px; background: var(--color-primary-container); color: var(--color-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;">4</span>
+                    <span style="font-size: 14px; color: var(--color-on-surface-variant);">Completá el <strong>Family Name</strong> — necesario para publicaciones en catálogo de celulares</span>
+                </li>
+                <li class="flex items-start gap-3">
+                    <span style="flex-shrink: 0; width: 24px; height: 24px; background: var(--color-primary-container); color: var(--color-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;">5</span>
+                    <span style="font-size: 14px; color: var(--color-on-surface-variant);">Hacé clic en <strong>Publicar en MELI</strong> — la publicación se crea al instante</span>
+                </li>
+            </ol>
+
+            <div style="margin-top: 24px; background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-md); padding: 16px;">
+                <p style="font-weight: 600; font-size: 14px; color: #92400e; margin: 0 0 8px 0;">⚠️ Importante</p>
+                <ul style="font-size: 12px; color: #92400e; margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 4px;">
+                    <li>El producto DEBE tener un <code style="background: #fde68a; padding: 0 4px; border-radius: 2px;">catalog_product_id</code> para publicar</li>
+                    <li>Los celulares requieren <code style="background: #fde68a; padding: 0 4px; border-radius: 2px;">catalog_listing = true</code></li>
+                    <li>Todas las publicaciones se crean con <strong>me2 + free_shipping</strong></li>
+                    <li>No se puede usar variaciones con catalog_listing</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script>
+const CAMPAIGNS = {{ campaign_options|safe }};
+
+function onProductChange(sel) {
+    const opt = sel.options[sel.selectedIndex];
+    const catalogInfo = document.getElementById('catalog-info');
+    const catalogDisplay = document.getElementById('catalog-pid-display');
+    const costoInfo = document.getElementById('costo-info');
+    const costoValor = document.getElementById('costo-valor');
+
+    if (opt.value && opt.dataset.catalog) {
+        catalogInfo.classList.remove('hidden');
+        catalogDisplay.textContent = opt.dataset.catalog;
+    } else {
+        catalogInfo.classList.add('hidden');
+    }
+
+    if (opt.value && opt.dataset.costo) {
+        costoInfo.classList.remove('hidden');
+        costoValor.textContent = parseFloat(opt.dataset.costo).toLocaleString('es-AR');
+    } else {
+        costoInfo.classList.add('hidden');
+    }
+}
+
+function onListingTypeChange(sel) {
+    const lt = sel.value;
+    const campaignSelect = document.querySelector('select[name="campaign_tag"]');
+    if (!campaignSelect) return;
+
+    campaignSelect.innerHTML = '<option value="">— Sin campaña —</option>';
+    const campaigns = CAMPAIGNS[lt] || [];
+    for (const camp of campaigns) {
+        const opt = document.createElement('option');
+        opt.value = camp.id;
+        opt.textContent = `${camp.label} (${camp.fee * 100}%)`;
+        campaignSelect.appendChild(opt);
+    }
+}
+
+// Inicializar campaigns al cargar
+document.addEventListener('DOMContentLoaded', function() {
+    const lt = document.querySelector('select[name="listing_type"]');
+    if (lt) onListingTypeChange(lt);
+});
+</script>
+
+{% endblock %}

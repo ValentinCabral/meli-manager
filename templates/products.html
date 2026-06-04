@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="section-header">
+    <h1 class="section-title">📦 Productos</h1>
+    <div class="section-actions">
+        <a href="{{ url_for('producto_nuevo') }}" class="btn btn-primary">
+            ➕ Nuevo Producto
+        </a>
+        <a href="{{ url_for('exportar', formato='xlsx') }}" class="btn btn-secondary">
+            📤 Exportar
+        </a>
+    </div>
+</div>
+
+<!-- Búsqueda -->
+<form method="GET" class="mb-6">
+    <div class="flex gap-2">
+        <input type="text" name="search" value="{{ search }}"
+               placeholder="Buscar por nombre, SKU, marca..."
+               class="input-field">
+        <button type="submit" class="btn btn-primary">
+            🔍 Buscar
+        </button>
+        {% if search %}
+        <a href="{{ url_for('productos') }}" class="btn btn-secondary">
+            ✕ Limpiar
+        </a>
+        {% endif %}
+    </div>
+</form>
+
+{% if productos %}
+<div class="card" style="padding: 0; overflow: hidden;">
+    <div class="overflow-x-auto">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Producto</th>
+                    <th style="text-align: center;">Variantes</th>
+                    <th style="text-align: center;">Publicaciones</th>
+                    <th style="text-align: right;">Costo</th>
+                    <th style="text-align: center;">Stock</th>
+                    <th style="text-align: right;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in productos %}
+                <tr>
+                    <td style="font-weight: 500;">{{ p.nombre }}</td>
+                    <td style="text-align: center;">{{ p.variantes }}</td>
+                    <td style="text-align: center;">{{ p.publicaciones }}</td>
+                    <td style="text-align: right; font-family: 'JetBrains Mono', 'Fira Code', monospace;">${{ '{:,.0f}'.format(p.costo) }}</td>
+                    <td style="text-align: center;">
+                        {% if p.stock <= 3 and p.stock > 0 %}
+                        <span class="badge badge-error">{{ p.stock }}</span>
+                        {% elif p.stock == 0 %}
+                        <span class="badge badge-neutral">{{ p.stock }}</span>
+                        {% else %}
+                        <span class="badge badge-success">{{ p.stock }}</span>
+                        {% endif %}
+                    </td>
+                    <td style="text-align: right;">
+                        <a href="{{ url_for('producto_editar', pid=p.id) }}" class="btn btn-ghost btn-sm">✏️ Editar</a>
+                        <form method="POST" action="{{ url_for('producto_eliminar') }}" class="inline"
+                              onsubmit="return confirm('¿Eliminar {{ p.nombre }} y sus {{ p.variantes }} variantes?')">
+                            <input type="hidden" name="nombre" value="{{ p.nombre }}">
+                            <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--color-error);">🗑️</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card" style="text-align: center; padding: 64px 24px;">
+    <div style="font-size: 48px; margin-bottom: 12px; opacity: 0.5;">📦</div>
+    <p style="font-weight: 600; font-size: 16px; color: var(--color-on-surface); margin-bottom: 8px;">
+        {% if search %}No se encontraron productos para "{{ search }}"{% else %}Todavía no hay productos{% endif %}
+    </p>
+    {% if not search %}
+    <a href="{{ url_for('producto_nuevo') }}" class="btn btn-primary" style="margin-top: 8px;">
+        ➕ Crear primer producto
+    </a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}

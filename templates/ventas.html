@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="section-header">
+    <h1 class="section-title">Ventas</h1>
+</div>
+
+<!-- Filter Form -->
+<form method="GET" action="{{ url_for('ventas') }}" class="card mb-6">
+    <div style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;">
+        <div class="form-group" style="flex: 1; min-width: 160px; margin-bottom: 0;">
+            <label class="form-label">Fecha desde</label>
+            <input type="date" name="fecha_desde" class="input-field" value="{{ fecha_desde }}">
+        </div>
+        <div class="form-group" style="flex: 1; min-width: 160px; margin-bottom: 0;">
+            <label class="form-label">Fecha hasta</label>
+            <input type="date" name="fecha_hasta" class="input-field" value="{{ fecha_hasta }}">
+        </div>
+        <div class="form-group" style="flex: 1; min-width: 140px; margin-bottom: 0;">
+            <label class="form-label">Estado</label>
+            <select name="estado" class="input-field">
+                <option value="">Todos</option>
+                <option value="paid" {{ 'selected' if estado == 'paid' }}>Pagadas</option>
+                <option value="shipped" {{ 'selected' if estado == 'shipped' }}>Enviadas</option>
+                <option value="cancelled" {{ 'selected' if estado == 'cancelled' }}>Canceladas</option>
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary">Filtrar</button>
+        <a href="{{ url_for('ventas') }}" class="btn btn-secondary">Limpiar</a>
+    </div>
+</form>
+
+{% if empty %}
+<div class="card">
+    <div class="empty-state">
+        <div class="empty-state-icon">📭</div>
+        <p class="empty-state-title">Todavía no hay órdenes sincronizadas</p>
+        <p class="empty-state-desc">Sincronizá tus órdenes desde el dashboard para verlas acá.</p>
+        <a href="{{ url_for('meli_sync_orders') }}" class="btn btn-primary">
+            📥 Sync Orders
+        </a>
+    </div>
+</div>
+{% elif ordenes %}
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Órdenes ({{ total }})</h2>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID de Orden</th>
+                    <th>
+                        <a href="{{ url_for('ventas', fecha_desde=fecha_desde, fecha_hasta=fecha_hasta, estado=estado, page=page, sort_order='asc' if sort_order == 'desc' else 'desc') }}"
+                           style="color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                            Fecha
+                            {% if sort_order == 'desc' %}▼{% else %}▲{% endif %}
+                        </a>
+                    </th>
+                    <th>Estado</th>
+                    <th>Total</th>
+                    <th>Items</th>
+                    <th>Comprador</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for orden in ordenes %}
+                <tr>
+                    <td><span class="font-mono text-sm">{{ orden.meli_order_id }}</span></td>
+                    <td class="text-sm">{{ orden.date_created[:10] if orden.date_created else '—' }}</td>
+                    <td>
+                        {% if orden.status == 'paid' %}
+                        <span class="badge badge-success">● Pagada</span>
+                        {% elif orden.status == 'shipped' %}
+                        <span class="badge badge-info">● Enviada</span>
+                        {% elif orden.status == 'cancelled' %}
+                        <span class="badge badge-error">● Cancelada</span>
+                        {% else %}
+                        <span class="badge badge-neutral">● {{ orden.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="font-semibold">${{ '{:,.0f}'.format(orden.total_paid_amount) }}</td>
+                    <td class="text-sm">{{ orden.items or '—' }}</td>
+                    <td class="text-sm">{{ orden.buyer_nickname or orden.buyer_id or '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if pages > 1 %}
+    <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--color-table-divider);">
+        {% if page > 1 %}
+        <a href="{{ url_for('ventas', fecha_desde=fecha_desde, fecha_hasta=fecha_hasta, estado=estado, page=page-1, sort_order=sort_order) }}"
+           class="btn btn-secondary btn-sm">← Anterior</a>
+        {% endif %}
+        <span class="text-sm" style="color: var(--color-on-surface-variant);">Página {{ page }} de {{ pages }}</span>
+        {% if page < pages %}
+        <a href="{{ url_for('ventas', fecha_desde=fecha_desde, fecha_hasta=fecha_hasta, estado=estado, page=page+1, sort_order=sort_order) }}"
+           class="btn btn-secondary btn-sm">Siguiente →</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}
