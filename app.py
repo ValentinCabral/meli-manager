@@ -32,12 +32,26 @@ db.init_db()
 
 def get_active_cuenta():
     """Devuelve la cuenta activa del usuario logueado."""
-    cuenta_id = session.get("cuenta_id")
     usuario_id = session.get("usuario_id")
-    if cuenta_id and usuario_id:
+    if not usuario_id:
+        return None
+
+    cuenta_id = session.get("cuenta_id")
+    if cuenta_id:
         cuenta = db.get_cuenta(cuenta_id)
         if cuenta and cuenta.get("usuario_id") == usuario_id:
             return cuenta
+
+    # Si no hay cuenta_id en sesión, buscar la activa del usuario
+    cuentas = db.listar_cuentas(usuario_id=usuario_id)
+    activas = [c for c in cuentas if c.get("active")]
+    if activas:
+        session["cuenta_id"] = activas[0]["id"]
+        return activas[0]
+    if cuentas:
+        session["cuenta_id"] = cuentas[0]["id"]
+        return cuentas[0]
+
     return None
 
 
