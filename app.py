@@ -435,7 +435,7 @@ def ventas():
     if total_orders == 0:
         return render_template("ventas.html",
                                ordenes=[],
-                               page=1,
+                               pagina=1,
                                pages=1,
                                total=0,
                                per_page=50,
@@ -458,7 +458,7 @@ def ventas():
 
     return render_template("ventas.html",
                            ordenes=result["rows"],
-                           page=result["page"],
+                           pagina=result["page"],
                            pages=result["pages"],
                            total=result["total"],
                            per_page=result["per_page"],

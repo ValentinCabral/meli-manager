@@ -52,7 +52,7 @@
                 <tr>
                     <th>ID de Orden</th>
                     <th>
-                        <a href="{{ url_for('ventas', fecha_desde=fecha_desde, fecha_hasta=fecha_hasta, estado=estado, page=page, sort_order='asc' if sort_order == 'desc' else 'desc') }}"
+                        <a href="{{ url_for('ventas', fecha_desde=fecha_desde, fecha_hasta=fecha_hasta, estado=estado, page=pagina, sort_order='asc' if sort_order == 'desc' else 'desc') }}"
                            style="color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
                             Fecha
                             {% if sort_order == 'desc' %}▼{% else %}▲{% endif %}
@@ -91,13 +91,13 @@
 
     {% if pages > 1 %}
     <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--color-table-divider);">
-        {% if page > 1 %}
-        <a href="{{ url_for('ventas', fecha_desde=fecha_desde, fecha_hasta=fecha_hasta, estado=estado, page=page-1, sort_order=sort_order) }}"
+        {% if pagina > 1 %}
+        <a href="{{ url_for('ventas', fecha_desde=fecha_desde, fecha_hasta=fecha_hasta, estado=estado, page=pagina-1, sort_order=sort_order) }}"
            class="btn btn-secondary btn-sm">← Anterior</a>
         {% endif %}
-        <span class="text-sm" style="color: var(--color-on-surface-variant);">Página {{ page }} de {{ pages }}</span>
-        {% if page < pages %}
-        <a href="{{ url_for('ventas', fecha_desde=fecha_desde, fecha_hasta=fecha_hasta, estado=estado, page=page+1, sort_order=sort_order) }}"
+        <span class="text-sm" style="color: var(--color-on-surface-variant);">Página {{ pagina }} de {{ pages }}</span>
+        {% if pagina < pages %}
+        <a href="{{ url_for('ventas', fecha_desde=fecha_desde, fecha_hasta=fecha_hasta, estado=estado, page=pagina+1, sort_order=sort_order) }}"
            class="btn btn-secondary btn-sm">Siguiente →</a>
         {% endif %}
     </div>

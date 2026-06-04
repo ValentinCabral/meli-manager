@@ -581,6 +581,7 @@ def listar_ordenes(cuenta_id, desde="", hasta="", estado="",
     if offset < 0:
         offset = 0
     pages = max(1, (total + per_page - 1) // per_page)
+    page = max(1, min(page, pages))
 
     rows = conn.execute(f"""
         SELECT o.*, GROUP_CONCAT(oi.item_title, ' | ') as items
