@@ -970,7 +970,7 @@ def publicar():
 
 @app.route("/publicar-masiva", methods=["GET", "POST"])
 def publicar_masiva():
-    """Crea múltiples publicaciones del mismo producto con distintas opciones de cuotas."""
+    """Crea UNA publicación con precio que cubre cuotas. Stock único."""
     cuenta = get_active_cuenta()
     if not cuenta:
         flash("Primero conectá una cuenta de MercadoLibre desde Cuentas", "warning")
@@ -978,15 +978,6 @@ def publicar_masiva():
 
     productos = db.listar_productos_agrupados(cuenta_id=cuenta["id"])
     publicables = [p for p in productos if p.get("catalog_product_id")]
-
-    # Opciones de cuotas disponibles
-    opciones_cuotas = [
-        {"id": "sin_cuotas", "label": "Sin cuotas", "listing_type": "gold_special", "campaign": "no-campaign", "fee": 12.77},
-        {"id": "3_cuotas", "label": "3 cuotas sin interés", "listing_type": "gold_pro", "campaign": "3x_campaign", "fee": 21.17},
-        {"id": "6_cuotas", "label": "6 cuotas sin interés", "listing_type": "gold_pro", "campaign": "no-campaign", "fee": 25.07},
-        {"id": "9_cuotas", "label": "9 cuotas sin interés", "listing_type": "gold_pro", "campaign": "9x_campaign", "fee": 28.47},
-        {"id": "12_cuotas", "label": "12 cuotas sin interés", "listing_type": "gold_pro", "campaign": "12x_campaign", "fee": 31.97},
-    ]
 
     if request.method == "POST":
         producto_id = int(request.form.get("producto_id", 0))
@@ -1000,76 +991,61 @@ def publicar_masiva():
             flash("Ingresá un precio mínimo a recibir válido", "warning")
             return redirect(url_for("publicar_masiva"))
 
-        seleccionadas = request.form.getlist("cuotas")
-        if not seleccionadas:
-            flash("Seleccioná al menos una opción de cuotas", "warning")
-            return redirect(url_for("publicar_masiva"))
-
+        listing_type = request.form.get("listing_type", "gold_pro")
         stock = int(request.form.get("stock", 1))
         family_name = request.form.get("family_name", "")
         catalog_pid = producto.get("catalog_product_id") or ""
+
+        if not catalog_pid:
+            flash("El producto necesita un catalog_product_id", "danger")
+            return redirect(url_for("publicar_masiva"))
+
+        # Usar la comisión más alta para cubrir todas las opciones de pago
+        if listing_type == "gold_pro":
+            fee_rate = 0.3197  # 12 cuotas (más alta)
+            campaign_tag = "12x_campaign"
+        else:
+            fee_rate = 0.1277  # gold_special
+            campaign_tag = "no-campaign"
+
+        precio_venta = math.ceil(neto_deseado / (1 - fee_rate))
+
         client = get_meli_client(cuenta)
-        resultados = []
+        result = client.crear_publicacion(
+            catalog_product_id=catalog_pid,
+            price=precio_venta,
+            listing_type=listing_type,
+            campaign_tag=campaign_tag,
+            stock=stock,
+            category_id=producto.get("categoria_id", "MLA1055"),
+            family_name=family_name,
+        )
 
-        for opt in opciones_cuotas:
-            if opt["id"] not in seleccionadas:
-                continue
-
-            # Precio = neto / (1 - fee)
-            fee_rate = opt["fee"] / 100
-            precio_venta = math.ceil(neto_deseado / (1 - fee_rate))
-
-            result = client.crear_publicacion(
-                catalog_product_id=catalog_pid,
-                price=precio_venta,
-                listing_type=opt["listing_type"],
-                campaign_tag=opt["campaign"],
+        if result["success"]:
+            db.crear_publicacion(
+                cuenta_id=cuenta["id"],
+                producto_id=producto_id,
+                precio=precio_venta,
+                listing_type=listing_type,
+                campaign_tag=campaign_tag,
                 stock=stock,
-                category_id=producto.get("categoria_id", "MLA1055"),
-                family_name=family_name,
+                meli_item_id=result["item_id"],
+                titulo=result.get("title", producto["nombre"]),
+                estado="activo" if result.get("status") == "active" else "borrador",
+                url=result.get("permalink", ""),
             )
-
-            if result["success"]:
-                titulo = f"{producto['nombre']} — {opt['label']}"
-                db.crear_publicacion(
-                    cuenta_id=cuenta["id"],
-                    producto_id=producto_id,
-                    precio=precio_venta,
-                    listing_type=opt["listing_type"],
-                    campaign_tag=opt["campaign"],
-                    stock=stock,
-                    meli_item_id=result["item_id"],
-                    titulo=titulo,
-                    estado="activo" if result.get("status") == "active" else "borrador",
-                    url=result.get("permalink", ""),
-                )
-                resultados.append({
-                    "opcion": opt["label"], "success": True,
-                    "precio": precio_venta, "fee": opt["fee"],
-                    "neto": neto_deseado,
-                    "item_id": result["item_id"], "url": result.get("permalink", ""),
-                })
-            else:
-                resultados.append({
-                    "opcion": opt["label"], "success": False,
-                    "precio": precio_venta, "fee": opt["fee"],
-                    "neto": neto_deseado,
-                    "error": result.get("error", "Error"),
-                })
-
             if client.refresh_token and client.refresh_token != cuenta["refresh_token"]:
                 db.actualizar_cuenta(cuenta["id"], refresh_token=client.refresh_token)
 
-        exitosos = sum(1 for r in resultados if r["success"])
-        return render_template("publish_masiva_result.html",
-                               producto=producto,
-                               resultados=resultados,
-                               exitosos=exitosos,
-                               page="publicar")
+            comision = math.ceil(precio_venta * fee_rate)
+            flash(f"✅ Publicado a ${precio_venta:,.0f} (comisión {fee_rate*100:.0f}% = ${comision:,}) — recibís ${neto_deseado:,.0f} neto", "success")
+        else:
+            flash(f"✗ Error: {result.get('error', 'desconocido')}", "danger")
+
+        return redirect(url_for("publicaciones"))
 
     return render_template("publish_masiva.html",
                            productos=publicables,
-                           opciones_cuotas=opciones_cuotas,
                            page="publicar")
 
 
