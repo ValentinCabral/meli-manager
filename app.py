@@ -1,6 +1,7 @@
 """MELI Manager — Flask Application (Multi-Cuenta + OAuth)"""
 
 import io
+import os
 import csv
 import json
 from datetime import datetime
@@ -15,8 +16,8 @@ from calculator import (calcular_precio_venta, calcular_todas_las_opciones,
 from config import CAMPAIGN_OPTIONS, ML_CLIENT_ID
 
 app = Flask(__name__)
-app.secret_key = "meli-manager-secret-key-change-in-production"
-MELI_REDIRECT_URI = "http://localhost:5000/auth/meli/callback"
+app.secret_key = os.getenv("SECRET_KEY", "meli-manager-secret-key-change-in-production")
+MELI_REDIRECT_URI = os.getenv("MELI_REDIRECT_URI", "http://localhost:5000/auth/meli/callback")
 
 
 # ─── Helper: cuenta activa ──────────────────────────────────
