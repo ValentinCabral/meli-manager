@@ -568,3 +568,46 @@ class MeliClient:
                 break
 
         return all_orders
+
+    # ─── Visitas ────────────────────────────────────────────
+
+    def sync_all_visits(self, item_ids: list) -> dict:
+        """Obtiene visitas de items en batches de 20.
+
+        Args:
+            item_ids: Lista de IDs de MELI (ej: ['MLA123', 'MLA456'])
+
+        Returns:
+            dict: {meli_item_id: visitas, ...}
+        """
+        self._ensure_token()
+        batch_size = 20
+        all_visits = {}
+
+        for i in range(0, len(item_ids), batch_size):
+            batch = item_ids[i:i + batch_size]
+            ids_param = ",".join(batch)
+            try:
+                resp = requests.get(
+                    f"{self.BASE_URL}/visits/items",
+                    headers=self._headers(),
+                    params={"ids": ids_param},
+                    timeout=30,
+                )
+                if resp.status_code == 403:
+                    # Token sin scope — devolver lo que tengamos
+                    continue
+                resp.raise_for_status()
+                data = resp.json()
+                # La respuesta es un dict directo: {"MLA123": 552, ...}
+                if isinstance(data, dict):
+                    all_visits.update(data)
+                elif isinstance(data, list):
+                    # Fallback: formato array con {item_id, visits}
+                    for entry in data:
+                        if isinstance(entry, dict) and "item_id" in entry:
+                            all_visits[entry["item_id"]] = entry.get("visits", 0)
+            except requests.HTTPError:
+                continue
+
+        return all_visits

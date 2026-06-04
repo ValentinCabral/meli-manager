@@ -125,6 +125,16 @@ def init_db():
             item_title TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS visitas_publicacion (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cuenta_id INTEGER NOT NULL REFERENCES cuentas_meli(id),
+            meli_item_id TEXT NOT NULL,
+            visitas INTEGER DEFAULT 0,
+            fecha TEXT DEFAULT (date('now')),
+            synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(cuenta_id, meli_item_id)
+        );
     """)
 
     # Migración: agregar columnas faltantes en tablas existentes
@@ -636,6 +646,53 @@ def count_ordenes(cuenta_id, desde="", hasta="", estado=""):
     row = conn.execute(f"SELECT COUNT(*) as c FROM ordenes {where}", params).fetchone()
     conn.close()
     return row["c"]
+
+
+# ─── Visitas CRUD ─────────────────────────────────────────
+
+def upsert_visita(cuenta_id, meli_item_id, visitas):
+    """Inserta o actualiza visitas de una publicación. Upsert por (cuenta_id, meli_item_id)."""
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO visitas_publicacion (cuenta_id, meli_item_id, visitas)
+        VALUES (?, ?, ?)
+        ON CONFLICT(cuenta_id, meli_item_id) DO UPDATE SET
+            visitas = excluded.visitas,
+            fecha = date('now'),
+            synced_at = CURRENT_TIMESTAMP
+    """, (cuenta_id, meli_item_id, visitas))
+    conn.commit()
+    conn.close()
+
+
+def get_visitas(cuenta_id):
+    """Devuelve {meli_item_id: visitas} para todos los items sincronizados."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT meli_item_id, visitas FROM visitas_publicacion WHERE cuenta_id = ?",
+        (cuenta_id,)
+    ).fetchall()
+    conn.close()
+    return {r["meli_item_id"]: r["visitas"] for r in rows}
+
+
+def get_metricas_detalle(cuenta_id):
+    """Devuelve publicaciones LEFT JOIN visitas, ordenado por visitas DESC.
+
+    Cada fila incluye todos los campos de publicaciones + v.visitas, v.fecha.
+    """
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT p.*, v.visitas, v.fecha as visitas_fecha,
+               pr.nombre as producto_nombre, pr.sku as producto_sku
+        FROM publicaciones p
+        LEFT JOIN visitas_publicacion v ON p.meli_item_id = v.meli_item_id
+        LEFT JOIN productos pr ON p.producto_id = pr.id
+        WHERE p.cuenta_id = ?
+        ORDER BY COALESCE(v.visitas, 0) DESC
+    """, (cuenta_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 # ─── Dashboard / Métricas ───────────────────────────────────

@@ -37,6 +37,7 @@
                     <th style="text-align: center;">Tipo</th>
                     <th style="text-align: center;">Estado</th>
                     <th style="text-align: right;">Stock</th>
+                    <th style="text-align: right;">Visitas</th>
                     <th style="text-align: right;">Acciones</th>
                 </tr>
             </thead>
@@ -74,6 +75,11 @@
                         {% endif %}
                     </td>
                     <td style="text-align: right;">{{ pub.stock }}</td>
+                    <td style="text-align: right; font-family: 'JetBrains Mono', 'Fira Code', monospace;">
+                        {% if pub.visitas is defined and pub.visitas is not none %}
+                            {{ '{:,.0f}'.format(pub.visitas) }}
+                        {% else %}—{% endif %}
+                    </td>
                     <td style="text-align: right;">
                         <div class="flex items-center justify-end gap-2">
                             {% if pub.estado == 'activo' %}

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="section-header">
+    <h1 class="section-title">📊 Métricas de Publicaciones</h1>
+    <a href="{{ url_for('meli_sync_visits') }}" class="btn btn-accent">
+        🔄 Sincronizar Visitas
+    </a>
+</div>
+
+{% if metricas %}
+<div class="card" style="padding: 0; overflow: hidden;">
+    <div class="overflow-x-auto">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="text-align: left;">Producto</th>
+                    <th style="text-align: left;">MELI ID</th>
+                    <th style="text-align: right;">Precio</th>
+                    <th style="text-align: right;">
+                        <a href="{{ url_for('meli_sync_visits') }}" style="color: var(--color-primary); text-decoration: none;">
+                            Visitas ▲
+                        </a>
+                    </th>
+                    <th style="text-align: right;">Vendidos</th>
+                    <th style="text-align: right;">Stock</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for pub in metricas %}
+                <tr>
+                    <td>
+                        <p style="font-weight: 500; margin: 0;">{{ pub.producto_nombre or pub.titulo|truncate(50) or '—' }}</p>
+                        {% if pub.producto_sku %}
+                        <p style="font-size: 12px; color: var(--color-on-surface-variant); opacity: 0.7; margin: 2px 0 0 0;">{{ pub.producto_sku }}</p>
+                        {% endif %}
+                    </td>
+                    <td style="font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px;">
+                        {% if pub.meli_item_id %}
+                        <a href="{{ pub.url or '#' }}" target="_blank" style="color: var(--color-primary);">
+                            {{ pub.meli_item_id }}
+                        </a>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td style="text-align: right; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-weight: 600;">
+                        ${{ '{:,.0f}'.format(pub.precio) }}
+                    </td>
+                    <td style="text-align: right; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-weight: 700;">
+                        {% if pub.visitas is not none %}
+                        <span style="color: var(--color-primary);">{{ '{:,.0f}'.format(pub.visitas) }}</span>
+                        {% else %}
+                        <span style="color: var(--color-on-surface-variant); opacity: 0.5;">—</span>
+                        {% endif %}
+                    </td>
+                    <td style="text-align: right;">—</td>
+                    <td style="text-align: right;">{{ pub.stock }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card" style="text-align: center; padding: 64px 24px;">
+    <div style="font-size: 48px; margin-bottom: 12px; opacity: 0.5;">📊</div>
+    <p style="font-weight: 600; font-size: 16px; color: var(--color-on-surface); margin-bottom: 8px;">
+        No hay publicaciones para mostrar
+    </p>
+    <p style="color: var(--color-on-surface-variant); font-size: 14px; margin-bottom: 16px;">
+        Sincronizá tus publicaciones desde MELI primero
+    </p>
+    <a href="{{ url_for('meli_sync') }}" class="btn btn-primary">
+        📥 Sincronizar Publicaciones
+    </a>
+</div>
+{% endif %}
+
+{% endblock %}

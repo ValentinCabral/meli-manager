@@ -19,6 +19,9 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "meli-manager-secret-key-change-in-production")
 MELI_REDIRECT_URI = os.getenv("MELI_REDIRECT_URI", "http://localhost:5000/auth/meli/callback")
 
+# Initialize DB at module level — runs on import, needed for gunicorn
+db.init_db()
+
 
 # ─── Helper: cuenta activa ──────────────────────────────────
 
@@ -411,6 +414,96 @@ def meli_sync_orders():
     return redirect(url_for("dashboard"))
 
 
+# ─── Visitas / Métricas ─────────────────────────────────────
+
+def _sync_cuenta_visits(cuenta, client=None):
+    """Sincroniza visitas de todas las publicaciones activas de una cuenta."""
+    if not client:
+        client = get_meli_client(cuenta)
+    if not client.user_id:
+        result = client.check_connection()
+        if not result.get("connected"):
+            return {"ok": False, "error": result.get("error", "conexión fallida")}
+
+    # Obtener publicaciones activas desde DB local
+    pubs = db.listar_publicaciones(cuenta_id=cuenta["id"])
+    item_ids = [p["meli_item_id"] for p in pubs if p["meli_item_id"]]
+
+    if not item_ids:
+        return {"ok": True, "sincronizadas": 0, "total": 0}
+
+    visits_data = client.sync_all_visits(item_ids)
+
+    sincronizadas = 0
+    for meli_item_id, visitas in visits_data.items():
+        db.upsert_visita(cuenta["id"], meli_item_id, visitas)
+        sincronizadas += 1
+
+    return {
+        "ok": True,
+        "sincronizadas": sincronizadas,
+        "total": len(item_ids),
+    }
+
+
+@app.route("/meli/sync-visits")
+def meli_sync_visits():
+    """Sincroniza visitas desde MELI y redirige a métricas."""
+    cuenta = get_active_cuenta()
+    if not cuenta:
+        flash("Conectá una cuenta de MercadoLibre primero", "warning")
+        return redirect(url_for("cuentas"))
+
+    client = get_meli_client(cuenta)
+    conn = client.check_connection()
+
+    if not conn.get("connected"):
+        session["meli_connected"] = False
+        error_msg = conn.get("error", "desconocido")
+        if "refresh_token" in str(error_msg).lower() or "401" in str(error_msg):
+            flash("✗ Token expirado o inválido. Reconectá la cuenta desde Cuentas.", "danger")
+        else:
+            flash(f"✗ Error de conexión: {error_msg}", "danger")
+        return redirect(url_for("cuentas"))
+
+    session["meli_connected"] = True
+    session["meli_nickname"] = conn["nickname"]
+    db.actualizar_cuenta(cuenta["id"],
+                         nickname=conn["nickname"],
+                         user_id=str(conn["user_id"]))
+    if conn.get("refresh_token") and conn["refresh_token"] != cuenta["refresh_token"]:
+        db.actualizar_cuenta(cuenta["id"], refresh_token=conn["refresh_token"])
+        cuenta["refresh_token"] = conn["refresh_token"]
+
+    flash(f"🔌 Conectado como {conn['nickname']}. Sincronizando visitas...", "info")
+
+    result = _sync_cuenta_visits(cuenta, client)
+
+    if result.get("ok"):
+        flash(f"✅ Sincronizadas {result['sincronizadas']} visitas", "success")
+        if client.refresh_token and client.refresh_token != cuenta.get("refresh_token"):
+            db.actualizar_cuenta(cuenta["id"], refresh_token=client.refresh_token)
+    else:
+        flash(f"✗ Error en sync de visitas: {result.get('error', 'desconocido')}", "danger")
+
+    return redirect(url_for("metricas"))
+
+
+@app.route("/metricas")
+def metricas():
+    """Muestra métricas de visitas con tabla ordenada por visitas DESC."""
+    cuenta = get_active_cuenta()
+    if not cuenta:
+        flash("No hay cuenta activa", "warning")
+        return redirect(url_for("cuentas"))
+
+    metricas_rows = db.get_metricas_detalle(cuenta_id=cuenta["id"])
+
+    return render_template("metricas.html",
+                           metricas=metricas_rows,
+                           page="metricas")
+
+
 # ─── Ventas ──────────────────────────────────────────────────
 
 @app.route("/ventas")
@@ -712,6 +805,14 @@ def publicaciones():
     cuenta = get_active_cuenta()
     search = request.args.get("search", "")
     pubs = db.listar_publicaciones(cuenta_id=cuenta["id"] if cuenta else None, search=search)
+
+    # Adjuntar visitas si hay cuenta activa
+    visitas_dict = {}
+    if cuenta:
+        visitas_dict = db.get_visitas(cuenta["id"])
+    for pub in pubs:
+        pub["visitas"] = visitas_dict.get(pub.get("meli_item_id", ""))
+
     return render_template("publications.html",
                            publicaciones=pubs,
                            search=search,
@@ -945,7 +1046,6 @@ def config():
 # ─── Main ──────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    db.init_db()
     print("=" * 50)
     print("  MELI Manager — App corriendo en http://127.0.0.1:5000")
     print("=" * 50)

@@ -1,9 +1,2 @@
-"""WSGI entry point for production (gunicorn)."""
-import database as db
-
-db.init_db()
-
+"""WSGI entry point — kept for compatibility, use app:app directly."""
 from app import app
-
-if __name__ == "__main__":
-    app.run()
