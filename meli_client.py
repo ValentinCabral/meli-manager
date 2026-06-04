@@ -32,12 +32,13 @@ class MeliClient:
 
     @classmethod
     def get_auth_url(cls, redirect_uri: str, state: str = "") -> str:
-        """Genera la URL de autorización de MELI (scopes como Dropdeal)."""
+        """Genera la URL de autorización de MELI (scopes + force_reauth como Dropdeal)."""
         params = {
             "response_type": "code",
             "client_id": ML_CLIENT_ID,
             "redirect_uri": redirect_uri,
             "scope": "offline_access read write",
+            "force_reauth": "true",
         }
         if state:
             params["state"] = state
