@@ -22,6 +22,15 @@ def init_db():
     cursor = conn.cursor()
 
     cursor.executescript("""
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            google_id TEXT UNIQUE NOT NULL,
+            email TEXT NOT NULL,
+            nombre TEXT,
+            avatar_url TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS cuentas_meli (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nickname TEXT,
@@ -150,6 +159,12 @@ def init_db():
         except sqlite3.OperationalError:
             pass  # ya existe
 
+    # Migración: agregar usuario_id a cuentas_meli
+    try:
+        cursor.execute("SELECT usuario_id FROM cuentas_meli LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute("ALTER TABLE cuentas_meli ADD COLUMN usuario_id INTEGER DEFAULT 1 REFERENCES usuarios(id)")
+
     # Seed: crear cuenta default desde .env si no hay ninguna cuenta
     cuenta_default = cursor.execute("SELECT COUNT(*) as c FROM cuentas_meli").fetchone()["c"]
     if cuenta_default == 0 and ML_REFRESH_TOKEN:
@@ -168,6 +183,27 @@ def init_db():
     conn.close()
 
 
+# ─── Usuarios CRUD ────────────────────────────────────────────
+
+def crear_usuario(google_id, email, nombre, avatar_url=""):
+    conn = get_db()
+    cursor = conn.execute("""
+        INSERT INTO usuarios (google_id, email, nombre, avatar_url)
+        VALUES (?, ?, ?, ?)
+    """, (google_id, email, nombre, avatar_url))
+    conn.commit()
+    uid = cursor.lastrowid
+    conn.close()
+    return uid
+
+
+def get_usuario_by_google_id(google_id):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM usuarios WHERE google_id = ?", (google_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 # ─── Cuentas MELI CRUD ─────────────────────────────────────
 
 def get_account_count():
@@ -177,15 +213,20 @@ def get_account_count():
     return c
 
 
-def listar_cuentas():
+def listar_cuentas(usuario_id=None):
     conn = get_db()
-    rows = conn.execute("""
+    query = """
         SELECT c.*,
                (SELECT COUNT(*) FROM productos WHERE cuenta_id = c.id) as total_productos,
                (SELECT COUNT(*) FROM publicaciones WHERE cuenta_id = c.id AND estado = 'activo') as total_publicaciones
         FROM cuentas_meli c
-        ORDER BY c.active DESC, c.created_at ASC
-    """).fetchall()
+    """
+    params = []
+    if usuario_id is not None:
+        query += " WHERE c.usuario_id = ?"
+        params.append(usuario_id)
+    query += " ORDER BY c.active DESC, c.created_at ASC"
+    rows = conn.execute(query, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -218,12 +259,12 @@ def activar_cuenta(cuenta_id):
     conn.close()
 
 
-def crear_cuenta(nickname, refresh_token, user_id="", site_id="MLA"):
+def crear_cuenta(nickname, refresh_token, user_id="", site_id="MLA", usuario_id=None):
     conn = get_db()
     cursor = conn.execute("""
-        INSERT INTO cuentas_meli (nickname, user_id, refresh_token, site_id)
-        VALUES (?, ?, ?, ?)
-    """, (nickname, user_id, refresh_token, site_id))
+        INSERT INTO cuentas_meli (nickname, user_id, refresh_token, site_id, usuario_id)
+        VALUES (?, ?, ?, ?, ?)
+    """, (nickname, user_id, refresh_token, site_id, usuario_id))
     conn.commit()
     cid = cursor.lastrowid
     conn.close()

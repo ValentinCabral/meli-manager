@@ -7,6 +7,9 @@ import json
 import secrets
 from datetime import datetime
 
+import requests
+from urllib.parse import urlencode
+
 from flask import (Flask, render_template, request, redirect,
                    url_for, flash, send_file, jsonify, session)
 
@@ -14,11 +17,12 @@ import database as db
 import meli_client as meli
 from calculator import (calcular_precio_venta, calcular_todas_las_opciones,
                         calcular_precio_garantizado)
-from config import CAMPAIGN_OPTIONS, ML_CLIENT_ID
+from config import CAMPAIGN_OPTIONS, ML_CLIENT_ID, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "meli-manager-secret-key-change-in-production")
 MELI_REDIRECT_URI = os.getenv("MELI_REDIRECT_URI", "http://localhost:5000/auth/meli/callback")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:5000/auth/google/callback")
 
 # Initialize DB at module level — runs on import, needed for gunicorn
 db.init_db()
@@ -27,13 +31,14 @@ db.init_db()
 # ─── Helper: cuenta activa ──────────────────────────────────
 
 def get_active_cuenta():
-    """Devuelve la cuenta activa desde la DB. Si hay una en session, la prioriza."""
+    """Devuelve la cuenta activa del usuario logueado."""
     cuenta_id = session.get("cuenta_id")
-    if cuenta_id:
+    usuario_id = session.get("usuario_id")
+    if cuenta_id and usuario_id:
         cuenta = db.get_cuenta(cuenta_id)
-        if cuenta:
+        if cuenta and cuenta.get("usuario_id") == usuario_id:
             return cuenta
-    return db.get_cuenta_activa()
+    return None
 
 
 def get_meli_client(cuenta=None):
@@ -48,17 +53,36 @@ def get_meli_client(cuenta=None):
     )
 
 
+# ─── Middleware: Requiere login ──────────────────────────────
+
+@app.before_request
+def require_login():
+    """Redirige al login si el usuario no está autenticado."""
+    public_routes = ["login", "auth_google_login", "auth_google_callback", "static"]
+    if request.endpoint in public_routes or request.endpoint is None:
+        return
+    if "usuario_id" not in session:
+        return redirect(url_for("login"))
+
+
 # ─── Inicialización ──────────────────────────────────────────
 
 @app.context_processor
-def inject_cuentas():
-    """Inyecta la cuenta activa y la lista de cuentas en todos los templates."""
+def inject_global_context():
+    """Inyecta datos globales en todos los templates: cuenta activa, cuentas del usuario, datos del usuario."""
     try:
-        cuentas = db.listar_cuentas()
+        usuario_id = session.get("usuario_id")
+        cuentas = db.listar_cuentas(usuario_id=usuario_id) if usuario_id else []
         cuenta = get_active_cuenta()
-        return {"cuenta": cuenta, "cuentas": cuentas}
+        return {
+            "cuenta": cuenta,
+            "cuentas": cuentas,
+            "usuario_nombre": session.get("user_nombre", ""),
+            "usuario_email": session.get("user_email", ""),
+            "usuario_avatar": session.get("user_avatar", ""),
+        }
     except Exception:
-        return {"cuenta": None, "cuentas": []}
+        return {"cuenta": None, "cuentas": [], "usuario_nombre": "", "usuario_email": "", "usuario_avatar": ""}
 
 
 # ─── Página Principal ───────────────────────────────────────
@@ -68,12 +92,10 @@ def dashboard():
     cuenta = get_active_cuenta()
     cuenta_id = cuenta["id"] if cuenta else None
     metricas = db.get_metricas(cuenta_id=cuenta_id)
-    cuentas = db.listar_cuentas()
     pubs_recientes = db.listar_publicaciones_recientes(cuenta_id=cuenta_id, limite=5)
     return render_template("dashboard.html",
                            metricas=metricas,
                            cuenta=cuenta,
-                           cuentas=cuentas,
                            publicaciones=pubs_recientes,
                            page="dashboard")
 
@@ -82,7 +104,7 @@ def dashboard():
 
 @app.route("/cuentas")
 def cuentas():
-    cuentas_list = db.listar_cuentas()
+    cuentas_list = db.listar_cuentas(usuario_id=session.get("usuario_id"))
     return render_template("cuentas.html",
                            cuentas=cuentas_list,
                            meli_client_id=ML_CLIENT_ID,
@@ -137,6 +159,101 @@ def cuenta_eliminar(cid):
     return redirect(url_for("cuentas"))
 
 
+# ─── Google OAuth ───────────────────────────────────────────
+
+@app.route("/login")
+def login():
+    """Login page with Google button."""
+    if "usuario_id" in session:
+        return redirect(url_for("dashboard"))
+    return render_template("login.html",
+                           google_client_id=GOOGLE_CLIENT_ID,
+                           google_redirect_uri=GOOGLE_REDIRECT_URI,
+                           page="login")
+
+
+@app.route("/auth/google/login")
+def auth_google_login():
+    """Redirect to Google OAuth."""
+    state = secrets.token_hex(32)
+    session["google_state"] = state
+    params = urlencode({
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+    })
+    return redirect(f"https://accounts.google.com/o/oauth2/v2/auth?{params}")
+
+
+@app.route("/auth/google/callback")
+def auth_google_callback():
+    """Handle Google OAuth callback."""
+    code = request.args.get("code")
+    state = request.args.get("state")
+    error = request.args.get("error")
+
+    if error:
+        flash(f"Login cancelado: {error}", "warning")
+        return redirect(url_for("login"))
+
+    # Validate state
+    expected = session.pop("google_state", None)
+    if state and expected and state != expected:
+        flash("Error de seguridad: state inválido", "danger")
+        return redirect(url_for("login"))
+
+    if not code:
+        flash("No se recibió el código de autorización", "danger")
+        return redirect(url_for("login"))
+
+    # Exchange code for tokens
+    token_resp = requests.post("https://oauth2.googleapis.com/token", data={
+        "code": code,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "grant_type": "authorization_code",
+    })
+    tokens = token_resp.json()
+    if "error" in tokens:
+        flash(f"Error al obtener token: {tokens.get('error_description', tokens['error'])}", "danger")
+        return redirect(url_for("login"))
+
+    # Get user info
+    user_resp = requests.get("https://www.googleapis.com/oauth2/v2/userinfo", headers={
+        "Authorization": f"Bearer {tokens['access_token']}"
+    })
+    user_data = user_resp.json()
+
+    # Find or create user
+    usuario = db.get_usuario_by_google_id(user_data["id"])
+    if not usuario:
+        uid = db.crear_usuario(
+            google_id=user_data["id"],
+            email=user_data.get("email", ""),
+            nombre=user_data.get("name", ""),
+            avatar_url=user_data.get("picture", ""),
+        )
+        usuario = db.get_usuario_by_google_id(user_data["id"])
+
+    session["usuario_id"] = usuario["id"]
+    session["user_nombre"] = usuario["nombre"]
+    session["user_email"] = usuario["email"]
+    session["user_avatar"] = usuario.get("avatar_url", "")
+
+    flash(f"✅ ¡Bienvenido, {usuario['nombre']}!", "success")
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    flash("Sesión cerrada", "info")
+    return redirect(url_for("login"))
+
+
 # ─── OAuth: Conectar nueva cuenta MELI ─────────────────────
 
 @app.route("/auth/meli/login")
@@ -186,6 +303,7 @@ def auth_meli_callback():
         refresh_token=refresh_token,
         user_id=user_id,
         site_id="MLA",
+        usuario_id=session.get("usuario_id"),
     )
     db.actualizar_cuenta(cid, access_token=access_token)
 

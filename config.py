@@ -16,6 +16,10 @@ DEFAULT_CATEGORY = "MLA1055"  # Celulares
 DEFAULT_MARGEN = 20  # 20%
 DEFAULT_LISTING_TYPE = "gold_special"
 
+# Google OAuth
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+
 # Database path
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "meli_manager.db")
 
