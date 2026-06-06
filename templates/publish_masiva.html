@@ -13,24 +13,20 @@
 </div>
 {% else %}
 
-<div x-data="{ neto: 0, tipo: 'gold_pro' }" class="grid-2-1" style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px; align-items: start;">
+<div x-data="{ preview: [] }" class="grid-2-1" style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px; align-items: start;">
 
-    <!-- Formulario -->
+    <!-- Formulario principal -->
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">Publicar una sola vez, cobrar en cuotas</h2>
+            <h2 class="card-title">Configurar publicación por cuotas</h2>
         </div>
-        <form method="POST">
-            <p style="font-size: 13px; color: var(--color-on-surface-variant); margin-bottom: 16px;">
-                Se crea <strong>una sola publicación</strong> en MELI. El comprador elige al pagar si quiere
-                hacerlo en 1 pago o en cuotas — MELI cobra la comisión correspondiente.
-                <strong>Vos recibís siempre el mismo neto.</strong>
-            </p>
+        <form method="POST" @submit="if($refs.cuotas.querySelectorAll('input:checked').length===0){event.preventDefault(); alert('Seleccioná al menos una opción de cuotas')}">
 
             <!-- Producto -->
             <div class="form-group">
                 <label class="form-label">📦 Producto</label>
-                <select name="producto_id" required class="input-field">
+                <select name="producto_id" required class="input-field"
+                        onchange="document.getElementById('preview-net').textContent=''; document.querySelector('[name=neto]').value=''">
                     <option value="">— Seleccionar —</option>
                     {% for p in productos %}
                     <option value="{{ p.id }}">{{ p.nombre }} {% if p.sku %}· {{ p.sku }}{% endif %}</option>
@@ -45,24 +41,34 @@
                     <span class="input-prefix">$</span>
                     <input type="number" name="neto" step="100" min="1" required class="input-field"
                            placeholder="Ej: 200000"
-                           x-model="neto">
+                           oninput="actualizarPreview(this.value)">
                 </div>
-                <p class="form-hint">Este es el monto que querés recibir por unidad, sin importar cómo pague el comprador.</p>
+                <p class="form-hint">Este es el monto que querés recibir por producto después de que MELI descuente su comisión.</p>
             </div>
 
-            <!-- Tipo de listing -->
+            <!-- Opciones de cuotas -->
             <div class="form-group">
-                <label class="form-label">⭐ Tipo de publicación</label>
-                <select name="listing_type" class="input-field" x-model="tipo">
-                    <option value="gold_pro">Gold Pro — Cuotas sin interés (comisión más alta, más ventas)</option>
-                    <option value="gold_special">Gold Special — Sin cuotas (comisión baja, el comprador paga el interés)</option>
-                </select>
+                <label class="form-label">🔄 Opciones de cuotas a publicar</label>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;" x-ref="cuotas">
+                    {% for opt in opciones_cuotas %}
+                    <label style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--color-table-divider); border-radius: var(--radius-md); cursor: pointer; transition: 0.15s;"
+                           :style="preview.includes('{{ opt.id }}') ? 'border-color: var(--color-primary); background: var(--color-primary-container);' : ''">
+                        <input type="checkbox" name="cuotas" value="{{ opt.id }}"
+                               @change="fetchPreview()"
+                               style="width: 16px; height: 16px;">
+                        <div>
+                            <p style="font-weight: 500; font-size: 14px; margin: 0;">{{ opt.label }}</p>
+                            <p style="font-size: 12px; color: var(--color-on-surface-variant); margin: 0;">Comisión: {{ opt.fee }}%</p>
+                        </div>
+                    </label>
+                    {% endfor %}
+                </div>
             </div>
 
             <!-- Stock y Family Name -->
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                 <div class="form-group">
-                    <label class="form-label">📊 Stock total</label>
+                    <label class="form-label">📊 Stock por publicación</label>
                     <input type="number" name="stock" min="1" value="1" class="input-field">
                 </div>
                 <div class="form-group">
@@ -73,77 +79,23 @@
             </div>
 
             <button type="submit" class="btn btn-accent btn-block btn-lg" style="margin-top: 16px;">
-                🚀 Publicar
+                🚀 Publicar opciones seleccionadas
             </button>
         </form>
     </div>
 
-    <!-- Preview -->
+    <!-- Preview + Tips -->
     <div>
         <div class="card" style="margin-bottom: 16px;">
             <div class="card-header">
-                <h2 class="card-title">📋 Precios estimados</h2>
+                <h2 class="card-title">📋 Preview de precios</h2>
             </div>
-            <div style="padding: 4px 0;">
-                <template x-if="neto && neto > 0">
-                    <div>
-                        <p class="text-sm" style="color: var(--color-on-surface-variant); margin-bottom: 12px;">
-                            Basado en <strong>$<span x-text="parseFloat(neto).toLocaleString('es-AR')"></span></strong> neto deseado:
-                        </p>
-                        <div style="display: flex; flex-direction: column; gap: 4px;">
-                            <!-- gold_special 12.77% -->
-                            <div class="preview-row" x-show="tipo === 'gold_special'" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: var(--radius-md); background: var(--surface-container-low);">
-                                <div>
-                                    <p style="font-weight: 500; font-size: 14px; margin: 0;">Sin cuotas</p>
-                                    <p style="font-size: 11px; color: var(--color-on-surface-variant); margin: 0;">Comisión 12.77% · Recibís $<span x-text="parseFloat(neto).toLocaleString('es-AR')"></span></p>
-                                </div>
-                                <p style="font-weight: 700; font-size: 18px; color: var(--color-primary); margin: 0;" x-text="'$' + Math.ceil(neto / (1 - 0.1277)).toLocaleString('es-AR')"></p>
-                            </div>
-
-                            <!-- gold_pro 31.97% (cubre todas las cuotas) -->
-                            <div x-show="tipo === 'gold_pro'" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: var(--radius-md); background: var(--surface-container-low);">
-                                <div>
-                                    <p style="font-weight: 500; font-size: 14px; margin: 0;">12 cuotas sin interés</p>
-                                    <p style="font-size: 11px; color: var(--color-on-surface-variant); margin: 0;">Comisión 31.97% · Recibís $<span x-text="parseFloat(neto).toLocaleString('es-AR')"></span></p>
-                                </div>
-                                <p style="font-weight: 700; font-size: 18px; color: var(--color-primary); margin: 0;" x-text="'$' + Math.ceil(neto / (1 - 0.3197)).toLocaleString('es-AR')"></p>
-                            </div>
-                            <div x-show="tipo === 'gold_pro'" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: var(--radius-md); background: var(--surface-container-low); opacity: 0.8;">
-                                <div>
-                                    <p style="font-weight: 500; font-size: 14px; margin: 0;">6 cuotas sin interés</p>
-                                    <p style="font-size: 11px; color: var(--color-on-surface-variant); margin: 0;">Comisión 25.07% · Recibís <span style="color: var(--color-success); font-weight: 600;">$<span x-text="Math.ceil(neto / (1 - 0.2507)).toLocaleString('es-AR')"></span></span></p>
-                                </div>
-                                <p style="font-weight: 700; font-size: 18px; color: var(--color-primary); margin: 0;" x-text="'$' + Math.ceil(neto / (1 - 0.2507)).toLocaleString('es-AR')"></p>
-                            </div>
-                            <div x-show="tipo === 'gold_pro'" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: var(--radius-md); background: var(--surface-container-low); opacity: 0.8;">
-                                <div>
-                                    <p style="font-weight: 500; font-size: 14px; margin: 0;">3 cuotas sin interés</p>
-                                    <p style="font-size: 11px; color: var(--color-on-surface-variant); margin: 0;">Comisión 21.17% · Recibís <span style="color: var(--color-success); font-weight: 600;">$<span x-text="Math.ceil(neto / (1 - 0.2117)).toLocaleString('es-AR')"></span></span></p>
-                                </div>
-                                <p style="font-weight: 700; font-size: 18px; color: var(--color-primary); margin: 0;" x-text="'$' + Math.ceil(neto / (1 - 0.2117)).toLocaleString('es-AR')"></p>
-                            </div>
-                            <div x-show="tipo === 'gold_pro'" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: var(--radius-md); background: var(--surface-container-low); opacity: 0.5;">
-                                <div>
-                                    <p style="font-weight: 500; font-size: 14px; margin: 0;">1 pago (efectivo/transferencia)</p>
-                                    <p style="font-size: 11px; color: var(--color-on-surface-variant); margin: 0;">Comisión 25.07% · Recibís <span style="color: var(--color-success); font-weight: 600;">$<span x-text="Math.ceil(neto / (1 - 0.2507)).toLocaleString('es-AR')"></span></span></p>
-                                </div>
-                                <p style="font-weight: 700; font-size: 18px; color: var(--color-primary); margin: 0;" x-text="'$' + Math.ceil(neto / (1 - 0.2507)).toLocaleString('es-AR')"></p>
-                            </div>
-                        </div>
-
-                        <div style="margin-top: 16px; padding: 12px; background: var(--color-primary-container); border-radius: var(--radius-md);">
-                            <p style="font-weight: 600; font-size: 13px; color: var(--color-primary); margin: 0;">
-                                Se publica a <strong x-text="'$' + Math.ceil(neto / (tipo === 'gold_pro' ? (1 - 0.3197) : (1 - 0.1277))).toLocaleString('es-AR')"></strong>
-                            </p>
-                            <p style="font-size: 12px; color: var(--color-primary); opacity: 0.8; margin: 4px 0 0 0;">
-                                Sin importar cómo pague el comprador, <strong>vos recibís siempre $<span x-text="parseFloat(neto).toLocaleString('es-AR')"></span></strong> por unidad.
-                            </p>
-                        </div>
-                    </div>
-                </template>
-                <template x-if="!neto || neto <= 0">
-                    <p class="text-sm" style="color: var(--color-on-surface-variant); padding: 8px 12px;">Ingresá el monto neto deseado para ver los precios estimados.</p>
-                </template>
+            <div id="preview-container">
+                <p class="text-sm" style="color: var(--color-on-surface-variant);" id="preview-net">Seleccioná un producto y ingresá el monto neto deseado.</p>
+                <div id="preview-results" style="display: none; margin-top: 12px;">
+                    <p class="text-sm font-semibold" style="margin-bottom: 8px;">Precios de venta estimados:</p>
+                    <div id="preview-list"></div>
+                </div>
             </div>
         </div>
 
@@ -154,27 +106,77 @@
             <ul style="display: flex; flex-direction: column; gap: 12px; padding: 0; margin: 0; list-style: none; font-size: 13px; color: var(--color-on-surface-variant);">
                 <li class="flex items-start gap-2">
                     <span style="flex-shrink: 0;">1️⃣</span>
-                    <span>Elegí producto + cuánto querés recibir neto</span>
+                    <span>Elegí el <strong>producto</strong> y el <strong>monto neto</strong> que querés recibir</span>
                 </li>
                 <li class="flex items-start gap-2">
                     <span style="flex-shrink: 0;">2️⃣</span>
-                    <span>Se crea <strong>una sola publicación</strong> con <strong>stock único</strong></span>
+                    <span>Seleccioná las <strong>opciones de cuotas</strong> que querés ofrecer</span>
                 </li>
                 <li class="flex items-start gap-2">
                     <span style="flex-shrink: 0;">3️⃣</span>
-                    <span>El precio de venta cubre la comisión más alta (12 cuotas)</span>
+                    <span>El sistema calcula el precio de venta para cada opción según la comisión de MELI</span>
                 </li>
                 <li class="flex items-start gap-2">
                     <span style="flex-shrink: 0;">4️⃣</span>
-                    <span>Si el comprador paga en menos cuotas, MELI descuenta menos comisión y <strong>ganás más</strong></span>
+                    <span>Se crea una <strong>publicación distinta</strong> por cada opción seleccionada</span>
                 </li>
                 <li class="flex items-start gap-2">
-                    <span style="flex-shrink: 0;">📊</span>
-                    <span>Un solo stock para todas las opciones de pago</span>
+                    <span style="flex-shrink: 0;">💰</span>
+                    <span>Sin importar cuál opción compre el cliente, <strong>vos recibís el mismo monto neto</strong></span>
                 </li>
             </ul>
         </div>
     </div>
 </div>
+
+<script>
+function actualizarPreview(neto) {
+    const container = document.getElementById('preview-results');
+    const list = document.getElementById('preview-list');
+    const netoEl = document.getElementById('preview-net');
+
+    if (!neto || parseFloat(neto) <= 0) {
+        container.style.display = 'none';
+        netoEl.textContent = 'Ingresá un monto neto válido.';
+        return;
+    }
+
+    netoEl.textContent = 'Recibís neto: $' + parseFloat(neto).toLocaleString('es-AR');
+    container.style.display = 'block';
+
+    const opciones = [
+        { id: 'sin_cuotas', label: 'Sin cuotas', fee: 12.77 },
+        { id: '3_cuotas', label: '3 cuotas sin interés', fee: 21.17 },
+        { id: '6_cuotas', label: '6 cuotas sin interés', fee: 25.07 },
+        { id: '9_cuotas', label: '9 cuotas sin interés', fee: 28.47 },
+        { id: '12_cuotas', label: '12 cuotas sin interés', fee: 31.97 },
+    ];
+
+    const checks = document.querySelectorAll('[name=cuotas]:checked');
+    const checkedIds = Array.from(checks).map(c => c.value);
+
+    list.innerHTML = '';
+    for (const opt of opciones) {
+        if (!checkedIds.includes(opt.id)) continue;
+        const precio = Math.ceil(parseFloat(neto) / (1 - opt.fee / 100));
+        const comision = Math.ceil(precio * opt.fee / 100);
+
+        const div = document.createElement('div');
+        div.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--color-table-divider);';
+        div.innerHTML = `
+            <div>
+                <p style="font-weight: 500; font-size: 14px; margin: 0;">${opt.label}</p>
+                <p style="font-size: 11px; color: var(--color-on-surface-variant); margin: 0;">Comisión: $${comision.toLocaleString('es-AR')}</p>
+            </div>
+            <p style="font-weight: 700; font-size: 16px; color: var(--color-primary); margin: 0;">$${precio.toLocaleString('es-AR')}</p>
+        `;
+        list.appendChild(div);
+    }
+
+    if (list.children.length === 0) {
+        list.innerHTML = '<p style="font-size: 13px; color: var(--color-on-surface-variant);">Seleccioná opciones de cuotas arriba.</p>';
+    }
+}
+</script>
 {% endif %}
 {% endblock %}

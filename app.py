@@ -18,8 +18,9 @@ from flask import (Flask, render_template, request, redirect,
 
 import database as db
 import meli_client as meli
+import gemini_client as gemini
 from calculator import (calcular_precio_venta, calcular_todas_las_opciones,
-                        calcular_precio_garantizado)
+                        calcular_precio_garantizado, calcular_precio_por_neto_deseado)
 from config import CAMPAIGN_OPTIONS, ML_CLIENT_ID, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 
 app = Flask(__name__)
@@ -108,6 +109,25 @@ def inject_global_context():
 def dashboard():
     cuenta = get_active_cuenta()
     cuenta_id = cuenta["id"] if cuenta else None
+
+    # Verificar conexión real contra MELI — no confiar solo en session flag
+    if cuenta:
+        try:
+            client = get_meli_client(cuenta)
+            check = client.check_connection()
+            if check.get("connected"):
+                session["meli_connected"] = True
+                session["meli_nickname"] = check.get("nickname", cuenta["nickname"])
+                # Actualizar refresh_token si cambió (MELI lo rota)
+                if check.get("refresh_token") and check["refresh_token"] != cuenta.get("refresh_token"):
+                    db.actualizar_cuenta(cuenta["id"], refresh_token=check["refresh_token"])
+            else:
+                session["meli_connected"] = False
+        except Exception:
+            session["meli_connected"] = False
+    else:
+        session["meli_connected"] = False
+
     metricas = db.get_metricas(cuenta_id=cuenta_id)
     pubs_recientes = db.listar_publicaciones_recientes(cuenta_id=cuenta_id, limite=5)
     return render_template("dashboard.html",
@@ -862,32 +882,81 @@ def calculadora():
     costo = 0
     margen = 20
     modo = "margen"
+    fees_from_api = False
+
+    # Intentar obtener comisiones reales desde MELI
+    cuenta = get_active_cuenta()
+    meli_client_obj = get_meli_client(cuenta) if cuenta else None
 
     if request.method == "POST":
         costo = float(request.form.get("costo", 0) or 0)
+        envio = float(request.form.get("envio", 0) or 0)
+        iibb_pct = float(request.form.get("iibb_pct", 0) or 0)
         modo = request.form.get("modo", "margen")
 
-        if modo == "garantizado":
-            ganancia_min = float(request.form.get("ganancia_minima", 0) or 0)
+        kwargs = {"envio": envio, "iibb_pct": iibb_pct}
+
+        if modo == "neto":
+            neto_deseado = float(request.form.get("neto_deseado", 0) or 0)
             for lt, campañas in CAMPAIGN_OPTIONS.items():
                 for camp in campañas:
-                    res = calcular_precio_garantizado(
-                        costo, ganancia_min, lt, camp["id"]
+                    res = calcular_precio_por_neto_deseado(
+                        costo, neto_deseado, lt, camp["id"], **kwargs
                     )
                     res["campaign_label"] = camp["label"]
                     res["cuotas"] = camp["cuotas"]
                     res["listing_type"] = lt
+                    if meli_client_obj:
+                        real = meli_client_obj.get_real_fee_rate(
+                            res["precio_venta"], lt, camp["id"]
+                        )
+                        if real:
+                            res["real_fee"] = real
+                            fees_from_api = True
                     resultados.append(res)
-        else:
+        elif modo == "garantizado":
+            ganancia_min = float(request.form.get("ganancia_minima", 0) or 0)
+            for lt, campañas in CAMPAIGN_OPTIONS.items():
+                for camp in campañas:
+                    res = calcular_precio_garantizado(
+                        costo, ganancia_min, lt, camp["id"], **kwargs
+                    )
+                    res["campaign_label"] = camp["label"]
+                    res["cuotas"] = camp["cuotas"]
+                    res["listing_type"] = lt
+                    if meli_client_obj:
+                        real = meli_client_obj.get_real_fee_rate(
+                            res["precio_venta"], lt, camp["id"]
+                        )
+                        if real:
+                            res["real_fee"] = real
+                            fees_from_api = True
+                    resultados.append(res)
+        else:  # margen
             margen = float(request.form.get("margen", 20) or 20)
-            resultados = calcular_todas_las_opciones(costo, margen)
+            resultados = calcular_todas_las_opciones(costo, margen, **kwargs)
+            if meli_client_obj:
+                for res in resultados:
+                    real = meli_client_obj.get_real_fee_rate(
+                        res["precio_venta"], res["listing_type"], res["campaign"]
+                    )
+                    if real:
+                        res["real_fee"] = real
+                        fees_from_api = True
 
+    neto_deseado = request.form.get("neto_deseado", 0) if request.method == "POST" else 0
+    envio = float(request.form.get("envio", 0)) if request.method == "POST" else 0
+    iibb_pct = float(request.form.get("iibb_pct", 0)) if request.method == "POST" else 0
     return render_template("calculator.html",
                            resultados=resultados,
                            costo=costo,
+                           envio=envio,
+                           iibb_pct=iibb_pct,
                            margen=margen,
                            modo=modo,
+                           neto_deseado=neto_deseado,
                            page="calculadora",
+                           fees_from_api=fees_from_api,
                            campaign_options=json.dumps(CAMPAIGN_OPTIONS))
 
 
@@ -900,6 +969,115 @@ def api_calcular():
     campaign = data.get("campaign", "no-campaign")
     res = calcular_precio_venta(costo, margen, listing_type, campaign)
     return jsonify(res)
+
+
+# ─── Detalle de catálogo / publicación ────────────────────────
+
+@app.route("/api/detalle-catalogo", methods=["POST"])
+def api_detalle_catalogo():
+    """Obtiene detalles de un producto de catálogo y/o una publicación.
+
+    Request JSON:
+        - catalog_product_id (opcional): ID del producto de catálogo
+        - item_id (opcional): ID de la publicación
+
+    Response JSON:
+        - title: nombre del producto o título de la publicación
+        - price: precio (solo de publicación)
+        - pictures[]: imágenes del producto de catálogo
+        - attributes{}: atributos del producto de catálogo
+        - description: descripción en texto plano (solo de publicación)
+        - category_id: categoría de la publicación
+    """
+    data = request.json
+    catalog_product_id = (data.get("catalog_product_id", "") or "").strip()
+    item_id = (data.get("item_id", "") or "").strip()
+
+    if not catalog_product_id and not item_id:
+        return jsonify({"error": "Se requiere catalog_product_id o item_id"}), 400
+
+    cuenta = get_active_cuenta()
+    if not cuenta:
+        return jsonify({"error": "Necesitás una cuenta de MELI conectada"}), 401
+
+    client = get_meli_client(cuenta)
+    if not client:
+        return jsonify({"error": "No se pudo iniciar sesión en MELI"}), 401
+
+    result = {
+        "title": "",
+        "price": 0,
+        "pictures": [],
+        "attributes": {},
+        "description": "",
+        "category_id": "",
+    }
+
+    try:
+        if catalog_product_id:
+            cat = client.get_catalog_product(catalog_product_id)
+            result["pictures"] = cat.get("pictures", [])
+            result["attributes"] = cat.get("attributes", {})
+            result["title"] = cat.get("name", "")
+
+        if item_id:
+            pub = client.get_publicacion(item_id)
+            result["title"] = result["title"] or pub.get("title", "")
+            result["price"] = pub.get("price", 0)
+            result["category_id"] = pub.get("category_id", "")
+            desc = client.get_item_description(item_id)
+            result["description"] = desc
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({"error": str(e), **result}), 500
+
+
+# ─── Calcular envío ─────────────────────────────────────────
+
+@app.route("/api/calcular-envio", methods=["POST"])
+def api_calcular_envio():
+    """Obtiene las opciones de envío del vendedor desde MELI."""
+    cuenta = get_active_cuenta()
+    if not cuenta:
+        return jsonify({"error": "Necesitás una cuenta de MELI conectada"}), 401
+
+    client = get_meli_client(cuenta)
+    if not client:
+        return jsonify({"error": "No se pudo iniciar sesión en MELI"}), 401
+
+    try:
+        shipping = client.get_shipping_options()
+        return jsonify(shipping)
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "modes": [],
+            "free_configurations": [],
+            "default_mode": "",
+        }), 500
+
+
+# ─── IA con Gemini ──────────────────────────────────────────
+
+@app.route("/api/generar-descripcion", methods=["POST"])
+def api_generar_descripcion():
+    """Genera una descripción de producto usando Gemini AI."""
+    if not gemini.is_available():
+        return jsonify({"error": "Gemini no está configurado. Configurá una API key en Ajustes."}), 400
+
+    data = request.json
+    desc = gemini.generar_descripcion(
+        nombre=data.get("nombre", ""),
+        marca=data.get("marca", ""),
+        modelo=data.get("modelo", ""),
+        color=data.get("color", ""),
+        categoria=data.get("categoria", "Celulares"),
+    )
+    if desc:
+        return jsonify({"descripcion": desc})
+    return jsonify({"error": "No se pudo generar la descripción"}), 500
 
 
 # ─── Publicar en MELI ───────────────────────────────────────
@@ -972,7 +1150,7 @@ def publicar():
 
 @app.route("/publicar-masiva", methods=["GET", "POST"])
 def publicar_masiva():
-    """Crea UNA publicación con precio que cubre cuotas. Stock único."""
+    """Crea múltiples publicaciones del mismo producto con distintas opciones de cuotas."""
     cuenta = get_active_cuenta()
     if not cuenta:
         flash("Primero conectá una cuenta de MercadoLibre desde Cuentas", "warning")
@@ -980,6 +1158,15 @@ def publicar_masiva():
 
     productos = db.listar_productos_agrupados(cuenta_id=cuenta["id"])
     publicables = [p for p in productos if p.get("catalog_product_id")]
+
+    # Opciones de cuotas disponibles
+    opciones_cuotas = [
+        {"id": "sin_cuotas", "label": "Sin cuotas", "listing_type": "gold_special", "campaign": "no-campaign", "fee": 12.77},
+        {"id": "3_cuotas", "label": "3 cuotas sin interés", "listing_type": "gold_pro", "campaign": "3x_campaign", "fee": 21.17},
+        {"id": "6_cuotas", "label": "6 cuotas sin interés", "listing_type": "gold_pro", "campaign": "no-campaign", "fee": 25.07},
+        {"id": "9_cuotas", "label": "9 cuotas sin interés", "listing_type": "gold_pro", "campaign": "9x_campaign", "fee": 28.47},
+        {"id": "12_cuotas", "label": "12 cuotas sin interés", "listing_type": "gold_pro", "campaign": "12x_campaign", "fee": 31.97},
+    ]
 
     if request.method == "POST":
         producto_id = int(request.form.get("producto_id", 0))
@@ -993,7 +1180,11 @@ def publicar_masiva():
             flash("Ingresá un precio mínimo a recibir válido", "warning")
             return redirect(url_for("publicar_masiva"))
 
-        listing_type = request.form.get("listing_type", "gold_pro")
+        seleccionadas = request.form.getlist("cuotas")
+        if not seleccionadas:
+            flash("Seleccioná al menos una opción de cuotas", "warning")
+            return redirect(url_for("publicar_masiva"))
+
         stock = int(request.form.get("stock", 1))
         family_name = request.form.get("family_name", "")
         catalog_pid = producto.get("catalog_product_id") or ""
@@ -1002,52 +1193,68 @@ def publicar_masiva():
             flash("El producto necesita un catalog_product_id", "danger")
             return redirect(url_for("publicar_masiva"))
 
-        # Usar la comisión más alta para cubrir todas las opciones de pago
-        if listing_type == "gold_pro":
-            fee_rate = 0.3197  # 12 cuotas (más alta)
-            campaign_tag = "12x_campaign"
-        else:
-            fee_rate = 0.1277  # gold_special
-            campaign_tag = "no-campaign"
-
-        precio_venta = math.ceil(neto_deseado / (1 - fee_rate))
-
         client = get_meli_client(cuenta)
-        result = client.crear_publicacion(
-            catalog_product_id=catalog_pid,
-            price=precio_venta,
-            listing_type=listing_type,
-            campaign_tag=campaign_tag,
-            stock=stock,
-            category_id=producto.get("categoria_id", "MLA1055"),
-            family_name=family_name,
-        )
+        resultados = []
 
-        if result["success"]:
-            db.crear_publicacion(
-                cuenta_id=cuenta["id"],
-                producto_id=producto_id,
-                precio=precio_venta,
-                listing_type=listing_type,
-                campaign_tag=campaign_tag,
+        for opt in opciones_cuotas:
+            if opt["id"] not in seleccionadas:
+                continue
+
+            # Precio = neto / (1 - fee)
+            fee_rate = opt["fee"] / 100
+            precio_venta = math.ceil(neto_deseado / (1 - fee_rate))
+
+            result = client.crear_publicacion(
+                catalog_product_id=catalog_pid,
+                price=precio_venta,
+                listing_type=opt["listing_type"],
+                campaign_tag=opt["campaign"],
                 stock=stock,
-                meli_item_id=result["item_id"],
-                titulo=result.get("title", producto["nombre"]),
-                estado="activo" if result.get("status") == "active" else "borrador",
-                url=result.get("permalink", ""),
+                category_id=producto.get("categoria_id", "MLA1055"),
+                family_name=family_name,
             )
+
+            if result["success"]:
+                titulo = f"{producto['nombre']} — {opt['label']}"
+                db.crear_publicacion(
+                    cuenta_id=cuenta["id"],
+                    producto_id=producto_id,
+                    precio=precio_venta,
+                    listing_type=opt["listing_type"],
+                    campaign_tag=opt["campaign"],
+                    stock=stock,
+                    meli_item_id=result["item_id"],
+                    titulo=titulo,
+                    estado="activo" if result.get("status") == "active" else "borrador",
+                    url=result.get("permalink", ""),
+                )
+                resultados.append({
+                    "opcion": opt["label"], "success": True,
+                    "precio": precio_venta, "fee": opt["fee"],
+                    "neto": neto_deseado,
+                    "item_id": result["item_id"], "url": result.get("permalink", ""),
+                })
+            else:
+                resultados.append({
+                    "opcion": opt["label"], "success": False,
+                    "precio": precio_venta, "fee": opt["fee"],
+                    "neto": neto_deseado,
+                    "error": result.get("error", "Error"),
+                })
+
             if client.refresh_token and client.refresh_token != cuenta["refresh_token"]:
                 db.actualizar_cuenta(cuenta["id"], refresh_token=client.refresh_token)
 
-            comision = math.ceil(precio_venta * fee_rate)
-            flash(f"✅ Publicado a ${precio_venta:,.0f} (comisión {fee_rate*100:.0f}% = ${comision:,}) — recibís ${neto_deseado:,.0f} neto", "success")
-        else:
-            flash(f"✗ Error: {result.get('error', 'desconocido')}", "danger")
-
-        return redirect(url_for("publicaciones"))
+        exitosos = sum(1 for r in resultados if r["success"])
+        return render_template("publish_masiva_result.html",
+                               producto=producto,
+                               resultados=resultados,
+                               exitosos=exitosos,
+                               page="publicar")
 
     return render_template("publish_masiva.html",
                            productos=publicables,
+                           opciones_cuotas=opciones_cuotas,
                            page="publicar")
 
 
@@ -1181,7 +1388,17 @@ def importar():
         errores = []
 
         if filename.endswith(".csv"):
-            decoded = contenido.decode("utf-8-sig")
+            # Intentar varios encodings (UTF-8, UTF-8 BOM, UTF-16, Latin-1)
+            decoded = None
+            for enc in ["utf-8-sig", "utf-16-le", "utf-16-be", "utf-16", "latin-1"]:
+                try:
+                    decoded = contenido.decode(enc)
+                    break
+                except (UnicodeDecodeError, UnicodeError):
+                    continue
+            if decoded is None:
+                flash("No se pudo leer el archivo CSV. Verificá que sea un archivo de texto válido.", "warning")
+                return redirect(url_for("importar"))
             reader = csv.DictReader(io.StringIO(decoded))
             for i, row in enumerate(reader):
                 try:
@@ -1285,6 +1502,11 @@ def config():
         db.set_config("default_listing_type", request.form.get("default_listing_type", "gold_special"))
         db.set_config("default_margen", request.form.get("default_margen", "20"))
         db.set_config("default_shipping", "me2")
+        gemini_key = request.form.get("gemini_api_key", "").strip()
+        if gemini_key:
+            db.set_config("gemini_api_key", gemini_key)
+        elif request.form.get("clear_gemini"):
+            db.set_config("gemini_api_key", "")
         flash("✓ Configuración guardada", "success")
         return redirect(url_for("config"))
 
@@ -1297,10 +1519,10 @@ def config():
 # ─── Auto-sync ──────────────────────────────────────────────
 
 def _start_auto_sync():
-    """Sincroniza visitas cada 15 minutos desde un thread en background.
+    """Sincroniza publicaciones, órdenes y visitas automáticamente.
 
     Usa el write lock de database.py, así que nunca tira 'database is locked'
-    aunque el usuario haga click en Sync al mismo tiempo.
+    aunque el usuario haga click manual al mismo tiempo.
     """
     def _worker():
         while True:
@@ -1315,14 +1537,16 @@ def _start_auto_sync():
                         )
                         conn_check = client.check_connection()
                         if conn_check.get("connected"):
+                            if client.refresh_token and client.refresh_token != c["refresh_token"]:
+                                db.actualizar_cuenta(c["id"], refresh_token=client.refresh_token)
                             _sync_cuenta_visits(c, client)
-                        break
+                            _sync_cuenta_ordenes(c, client)
             except Exception:
                 pass  # Reintenta en el próximo ciclo
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
-    print("  [Auto-sync] Sincronizacion cada 15 minutos activada")
+    print("  [Auto-sync] Sincronizacion cada 15 minutos activada (publicaciones + ordenes + visitas)")
 
 
 _start_auto_sync()

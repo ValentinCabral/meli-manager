@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 
-<div style="max-width: 672px; margin: 0 auto;">
+<div style="max-width: 720px; margin: 0 auto;">
     <div class="section-header">
         <h1 class="section-title">
             {% if producto %}✏️ Editar Producto{% else %}➕ Nuevo Producto{% endif %}
@@ -14,7 +14,7 @@
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                 <div style="grid-column: 1 / -1;" class="form-group">
                     <label class="form-label">Nombre *</label>
-                    <input type="text" name="nombre" required
+                    <input type="text" name="nombre" required id="product-name"
                            value="{{ producto.nombre if producto else '' }}"
                            class="input-field">
                 </div>
@@ -64,12 +64,27 @@
                            class="input-field">
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label">Catalog Product ID</label>
-                    <input type="text" name="catalog_product_id"
-                           value="{{ producto.catalog_product_id if producto else '' }}"
-                           class="input-field">
-                    <p class="form-hint">ID del producto en el catálogo de MELI</p>
+                <!-- Catalog Product ID con link de MELI -->
+                <div style="grid-column: 1 / -1;" class="form-group">
+                    <label class="form-label">📦 Catálogo MELI</label>
+                    <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                        <input type="text" name="catalog_product_id" id="catalog-pid"
+                               value="{{ producto.catalog_product_id if producto else '' }}"
+                               placeholder="Pegá el link del producto de MELI (ej: https://www.mercadolibre.com.ar/p/MLA...)"
+                               class="input-field" style="flex: 1; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px;">
+                        <button type="button" id="load-catalog-btn"
+                                class="btn btn-secondary" style="flex-shrink: 0; white-space: nowrap;">
+                            📥 Cargar
+                        </button>
+                    </div>
+                    <p class="form-hint" style="margin: 0;">
+                        Pegá el link de un producto de MercadoLibre y hacé clic en "Cargar" para
+                        auto-completar los datos (nombre, marca, modelo, color, precio sugerido).
+                        También podés escribir el Catalog Product ID directamente (ej: MLA12345678).
+                    </p>
+
+                    <!-- Resultados de carga -->
+                    <div id="catalog-results" style="display: none; margin-top: 12px;"></div>
                 </div>
 
                 <div style="grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 12px; padding-top: 16px;">
@@ -84,5 +99,165 @@
         </form>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const loadBtn = document.getElementById('load-catalog-btn');
+    const pidInput = document.getElementById('catalog-pid');
+    const resultsDiv = document.getElementById('catalog-results');
+
+    loadBtn.addEventListener('click', async function() {
+        const input = pidInput.value.trim();
+        if (!input) {
+            pidInput.focus();
+            pidInput.style.outline = '2px solid var(--color-error)';
+            setTimeout(() => pidInput.style.outline = '', 2000);
+            return;
+        }
+
+        // Extract catalog_product_id from URL or use bare ID
+        const extracted = extractCatalogId(input);
+        if (!extracted || !extracted.catalog_product_id) {
+            resultsDiv.style.display = 'block';
+            resultsDiv.innerHTML = `<div style="padding: 16px; color: var(--color-error);">
+                <p>✗ No se pudo extraer un ID de catálogo de ese link</p>
+                <p style="font-size: 12px; opacity: 0.8;">Usá un link como https://www.mercadolibre.com.ar/p/MLA12345678</p>
+            </div>`;
+            return;
+        }
+
+        pidInput.value = extracted.catalog_product_id;
+
+        loadBtn.disabled = true;
+        loadBtn.innerHTML = '⏳ Cargando...';
+        resultsDiv.style.display = 'block';
+        resultsDiv.innerHTML = `<div style="padding: 16px; color: var(--color-on-surface-variant);">
+            <p>⏳ Cargando detalles del producto...</p>
+        </div>`;
+
+        // Call detalle-catalogo to auto-fill
+        await loadCatalogDetails(extracted.catalog_product_id, extracted.item_id || '');
+
+        loadBtn.disabled = false;
+        loadBtn.innerHTML = '📥 Cargar';
+    });
+});
+
+/**
+ * Extract catalog_product_id from a MELI product URL or bare ID.
+ * Accepts:
+ *   https://www.mercadolibre.com.ar/p/MLA12345678
+ *   https://www.mercadolibre.com.ar/item/MLA1234567890
+ *   MLA12345678 (bare ID)
+ */
+function extractCatalogId(input) {
+    input = input.trim();
+
+    // Pattern 1: /p/MLA12345678 (catalog product page)
+    const pMatch = input.match(/\/p\/(ML[ABN]?\d+)/i);
+    if (pMatch) return { catalog_product_id: pMatch[1] };
+
+    // Pattern 2: /item/MLA1234567890 (item detail page)
+    const itemMatch = input.match(/\/item\/(ML[ABN]?\d+)/i);
+    if (itemMatch) return { catalog_product_id: itemMatch[1], item_id: itemMatch[1] };
+
+    // Pattern 3: Bare MLA ID like MLA12345678
+    const bareMatch = input.match(/^(ML[ABN]?\d+)$/i);
+    if (bareMatch) return { catalog_product_id: bareMatch[1] };
+
+    // Pattern 4: Any URL with an MLA ID in the path as last resort
+    const anyMatch = input.match(/(ML[ABN]?\d{5,})/i);
+    if (anyMatch) return { catalog_product_id: anyMatch[1] };
+
+    return null;
+}
+
+async function loadCatalogDetails(catalogPid, itemId) {
+    const pidInput = document.getElementById('catalog-pid');
+    const resultsDiv = document.getElementById('catalog-results');
+
+    try {
+        const resp = await fetch('/api/detalle-catalogo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                catalog_product_id: catalogPid,
+                item_id: itemId,
+            }),
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            resultsDiv.innerHTML = `<div style="padding: 16px; color: var(--color-error);">
+                <p>⚠️ ${data.error}</p>
+            </div>`;
+            return;
+        }
+
+        // Auto-fill form fields
+        const nameInput = document.getElementById('product-name');
+        const marcaInput = document.querySelector('input[name="marca"]');
+        const modeloInput = document.querySelector('input[name="modelo"]');
+        const colorInput = document.querySelector('input[name="color"]');
+        const costoInput = document.querySelector('input[name="costo"]');
+        const categoriaInput = document.querySelector('input[name="categoria_id"]');
+
+        if (data.title && nameInput) nameInput.value = data.title;
+        if (data.price && costoInput) costoInput.value = data.price;
+        if (data.category_id && categoriaInput) categoriaInput.value = data.category_id;
+
+        // Attributes from catalog product
+        if (data.attributes) {
+            if (data.attributes.BRAND && marcaInput) marcaInput.value = data.attributes.BRAND;
+            if (data.attributes.MODEL && modeloInput) modeloInput.value = data.attributes.MODEL;
+            if (data.attributes.COLOR && colorInput) colorInput.value = data.attributes.COLOR;
+        }
+
+        // Build success confirmation with image preview
+        let previewHtml = `
+            <div style="padding: 12px 14px; background: #dcfce7; border: 1px solid #86efac; border-radius: var(--radius-md); margin-top: 8px; font-size: 13px; color: #166534;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="flex: 1;">
+                        ✅ Producto &quot;${data.title}&quot; cargado desde catálogo
+                    </div>`;
+
+        if (data.pictures && data.pictures.length > 0) {
+            previewHtml += `
+                    <img src="${data.pictures[0]}"
+                         alt="${data.title}"
+                         style="width: 64px; height: 64px; object-fit: contain; border-radius: 6px; background: white; border: 1px solid #e5e7eb;">`;
+        }
+
+        previewHtml += `</div>`;
+
+        // Show attribute tags
+        if (data.attributes) {
+            const tags = [];
+            if (data.attributes.BRAND) tags.push(data.attributes.BRAND);
+            if (data.attributes.MODEL) tags.push(data.attributes.MODEL);
+            if (data.attributes.COLOR) tags.push(data.attributes.COLOR);
+            if (tags.length > 0) {
+                previewHtml += `<div style="display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap;">
+                    ${tags.map(t => `<span style="background: #bbf7d0; padding: 2px 8px; border-radius: 4px; font-size: 11px;">${t}</span>`).join('')}
+                </div>`;
+            }
+        }
+
+        previewHtml += `</div>`;
+        resultsDiv.innerHTML = previewHtml;
+
+        // Scroll to the form top
+        document.querySelector('.card form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    } catch (err) {
+        resultsDiv.innerHTML = `
+            <div style="padding: 12px 14px; background: #dcfce7; border: 1px solid #86efac; border-radius: var(--radius-md); margin-top: 8px; font-size: 13px; color: #166534;">
+                ✅ Catalog Product ID <code style="background: #bbf7d0; padding: 0 6px; border-radius: 4px;">${catalogPid}</code> seleccionado
+            </div>`;
+    }
+}
+</script>
+
+
 
 {% endblock %}

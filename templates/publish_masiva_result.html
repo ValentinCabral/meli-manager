@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="section-header">
+    <h1 class="section-title">📋 Resultado</h1>
+    <a href="{{ url_for('publicar_masiva') }}" class="btn btn-primary">Publicar otro</a>
+</div>
+
+<div class="card" style="margin-bottom: 16px;">
+    <div class="card-header">
+        <h2 class="card-title">Producto: {{ producto.nombre }}</h2>
+        <span style="font-size: 13px; color: var(--color-on-surface-variant);">Neto por unidad: ${{ '{:,.0f}'.format(resultados[0].neto) if resultados else 0 }}</span>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
+    <div class="card" style="text-align: center; padding: 24px;">
+        <p class="text-sm" style="color: var(--color-on-surface-variant);">Solicitadas</p>
+        <p class="text-2xl font-bold">{{ resultados|length }}</p>
+    </div>
+    <div class="card" style="text-align: center; padding: 24px;">
+        <p class="text-sm" style="color: var(--color-on-surface-variant);">Publicadas</p>
+        <p class="text-2xl font-bold" style="color: var(--color-success);">{{ exitosos }}</p>
+    </div>
+    <div class="card" style="text-align: center; padding: 24px;">
+        <p class="text-sm" style="color: var(--color-on-surface-variant);">Fallidas</p>
+        <p class="text-2xl font-bold" style="color: var(--color-error);">{{ resultados|length - exitosos }}</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="overflow-x-auto">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Opción</th>
+                    <th style="text-align: right;">Precio venta</th>
+                    <th style="text-align: right;">Comisión</th>
+                    <th style="text-align: right;">Recibís</th>
+                    <th style="text-align: center;">Resultado</th>
+                    <th>Detalle</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in resultados %}
+                <tr>
+                    <td style="font-weight: 500;">{{ r.opcion }}</td>
+                    <td style="text-align: right; font-family: monospace; font-weight: 600;">${{ '{:,.0f}'.format(r.precio) }}</td>
+                    <td style="text-align: right; font-family: monospace; color: var(--color-warning);">${{ '{:,.0f}'.format((r.precio * r.fee / 100)|round(0, 'ceil')|int) }}</td>
+                    <td style="text-align: right; font-family: monospace; color: var(--color-success); font-weight: 600;">${{ '{:,.0f}'.format(r.neto) }}</td>
+                    <td style="text-align: center;">
+                        {% if r.success %}
+                        <span class="badge badge-success">✅ Publicado</span>
+                        {% else %}
+                        <span class="badge badge-error">❌ Error</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if r.success %}
+                        <a href="{{ r.url }}" target="_blank" style="color: var(--color-primary); font-family: monospace; font-size: 13px;">{{ r.item_id }}</a>
+                        {% else %}
+                        <span class="text-sm" style="color: var(--color-error);">{{ r.error[:100] }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

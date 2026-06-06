@@ -3,9 +3,14 @@
 
 <div class="section-header">
     <h1 class="section-title">🧮 Calculadora de Publicaciones</h1>
-    <a href="{{ url_for('publicar') }}" class="btn btn-primary">
-        🚀 Ir a Publicar
-    </a>
+    <div style="display: flex; gap: 8px;">
+        <a href="{{ url_for('publicar_masiva') }}" class="btn btn-secondary">
+            📦 Publicar por cuotas
+        </a>
+        <a href="{{ url_for('publicar') }}" class="btn btn-primary">
+            🚀 Publicación simple
+        </a>
+    </div>
 </div>
 
 <div class="grid-2-1">
@@ -25,9 +30,32 @@
                     </div>
                 </div>
 
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div class="form-group">
+                        <label class="form-label">🚚 Costo de envío</label>
+                        <div class="input-wrapper">
+                            <span class="input-prefix">$</span>
+                            <input type="number" name="envio" step="0.01" min="0" value="{{ envio }}"
+                                   class="input-field" placeholder="0">
+                        </div>
+                        <p class="form-hint" style="margin-bottom: 4px;">Lo que pagás por enviar el producto (o usá "Calcular desde MELI")</p>
+                        <button type="button" id="calc-shipping-btn" class="btn btn-ghost btn-sm"
+                                style="margin-top: 4px; font-size: 12px; white-space: nowrap;">
+                            📦 Calcular desde MELI
+                        </button>
+                        <p class="form-hint" id="shipping-result" style="display: none;"></p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">🏛️ IIBB (%)</label>
+                        <input type="number" name="iibb_pct" step="0.01" min="0" value="{{ iibb_pct }}"
+                               class="input-field" placeholder="Ej: 3">
+                        <p class="form-hint">Alícuota de Ingresos Brutos</p>
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label class="form-label">Modo de cálculo</label>
-                    <div class="flex gap-3" style="margin-top: 6px;">
+                    <div class="flex gap-3" style="margin-top: 6px; flex-wrap: wrap;">
                         <label class="flex items-center gap-2" style="cursor: pointer;">
                             <input type="radio" name="modo" value="margen"
                                    {{ 'checked' if modo == 'margen' }}
@@ -42,10 +70,17 @@
                                    style="accent-color: var(--color-primary);">
                             <span style="font-size: 14px;">Ganancia mínima</span>
                         </label>
+                        <label class="flex items-center gap-2" style="cursor: pointer;">
+                            <input type="radio" name="modo" value="neto"
+                                   {{ 'checked' if modo == 'neto' }}
+                                   onchange="toggleModo()"
+                                   style="accent-color: var(--color-primary);">
+                            <span style="font-size: 14px;">Quiero recibir</span>
+                        </label>
                     </div>
                 </div>
 
-                <div id="margen-field" class="form-group">
+                <div id="margen-field" class="form-group {{ 'hidden' if modo != 'margen' }}">
                     <label class="form-label">📈 Margen deseado (%)</label>
                     <input type="number" name="margen" step="0.1" min="0" value="{{ margen }}"
                            class="input-field">
@@ -54,7 +89,19 @@
                 <div id="ganancia-field" class="form-group {{ 'hidden' if modo != 'garantizado' }}">
                     <label class="form-label">🎯 Ganancia neta mínima ($)</label>
                     <input type="number" name="ganancia_minima" step="0.01" min="0"
-                           class="input-field">
+                           value="" class="input-field">
+                </div>
+
+                <div id="neto-field" class="form-group {{ 'hidden' if modo != 'neto' }}">
+                    <label class="form-label">🎯 Quiero recibir ($)</label>
+                    <div class="input-wrapper">
+                        <span class="input-prefix">$</span>
+                        <input type="number" name="neto_deseado" step="0.01" min="0"
+                               value="{% if neto_deseado %}{{ neto_deseado }}{% endif %}"
+                               class="input-field"
+                               placeholder="Lo que quiero que me quede después de comisiones">
+                    </div>
+                    <p class="form-hint">El precio cubre costo + envío + comisiones + IIBB, y te deja este neto.</p>
                 </div>
 
                 <button type="submit" class="btn btn-primary btn-block btn-lg">
@@ -72,6 +119,9 @@
                 <h2 class="card-title" style="margin: 0;">
                     📊 Resultados
                     <span style="font-weight: 400; font-size: 14px; color: var(--color-on-surface-variant); margin-left: 8px;">({{ resultados|length }} combinaciones)</span>
+                    {% if fees_from_api and cuenta %}
+                    <span class="badge badge-success" style="margin-left: 8px; font-size: 11px;">● Comisiones reales desde MELI</span>
+                    {% endif %}
                 </h2>
             </div>
             <div class="overflow-x-auto">
@@ -80,10 +130,13 @@
                         <tr>
                             <th style="text-align: left;">Tipo</th>
                             <th style="text-align: left;">Cuotas</th>
-                            <th style="text-align: right;">Comisión</th>
                             <th style="text-align: right;">Precio Venta</th>
+                            <th style="text-align: right;">Costo Total</th>
                             <th style="text-align: right;">Ganancia Neta</th>
-                            <th style="text-align: center;">Margen Real</th>
+                            <th style="text-align: center;">Margen</th>
+                            {% if fees_from_api %}
+                            <th style="text-align: left; min-width: 180px;">Desglose cargos</th>
+                            {% endif %}
                         </tr>
                     </thead>
                     <tbody>
@@ -97,26 +150,106 @@
                                 {% endif %}
                             </td>
                             <td style="color: var(--color-on-surface-variant);">{{ r.campaign_label }}</td>
-                            <td style="text-align: right; font-family: 'JetBrains Mono', 'Fira Code', monospace;">{{ r.fee_rate }}%</td>
                             <td style="text-align: right; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-weight: 600;">
                                 ${{ '{:,.0f}'.format(r.precio_venta) }}
                             </td>
-                            <td style="text-align: right; font-family: 'JetBrains Mono', 'Fira Code', monospace; {% if r.ganancia_neta > 0 %}color: var(--color-success){% else %}color: var(--color-error){% endif %};">
+                            <td style="text-align: right; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px;">
+                                ${{ '{:,.0f}'.format(r.costo + r.envio) }}
+                                <br><span style="font-size: 10px; color: var(--color-on-surface-variant);">
+                                    {%- if r.envio > 0 %} +${{ '{:,.0f}'.format(r.envio) }} envío{% endif -%}
+                                    {%- if r.iibb > 0 %} +${{ '{:,.0f}'.format(r.iibb) }} IIBB{% endif -%}
+                                </span>
+                            </td>
+                            <td style="text-align: right; font-family: 'JetBrains Mono', 'Fira Code', monospace;
+                                {% if r.ganancia_neta > 0 %}color: var(--color-success){% else %}color: var(--color-error){% endif %};">
                                 ${{ '{:,.0f}'.format(r.ganancia_neta) }}
                             </td>
                             <td style="text-align: center; font-family: 'JetBrains Mono', 'Fira Code', monospace;">
+                                {% if r.costo > 0 %}
                                 {{ r.margen_real }}%
+                                {% else %}
+                                <span style="color: var(--color-on-surface-variant);">—</span>
+                                {% endif %}
                             </td>
+                            {% if fees_from_api and r.real_fee %}
+                            <td style="font-size: 11px; line-height: 1.6; min-width: 160px;">
+                                {% set b = r.real_fee.breakdown %}
+                                <div style="display: flex; flex-direction: column; gap: 1px;">
+                                    <span style="color: #f97316;">
+                                        ┃ MELI: {{ '%.2f'|format(b.meli_percentage_fee) }}%
+                                    </span>
+                                    {% if b.financing_add_on_fee > 0 %}
+                                    <span style="color: #8b5cf6;">
+                                        ┃ Cuotas: +{{ '%.2f'|format(b.financing_add_on_fee) }}%
+                                    </span>
+                                    {% endif %}
+                                    {% if b.fixed_fee > 0 %}
+                                    <span style="color: #06b6d4;">
+                                        ┃ Cargo fijo: ${{ '%.0f'|format(b.fixed_fee) }}
+                                    </span>
+                                    {% endif %}
+                                    {% if r.envio > 0 %}
+                                    <span style="color: #eab308;">
+                                        ┃ Envío: ${{ '{:,.0f}'.format(r.envio) }}
+                                    </span>
+                                    {% endif %}
+                                    {% if r.iibb > 0 %}
+                                    <span style="color: #ec4899;">
+                                        ┃ IIBB: ${{ '{:,.0f}'.format(r.iibb) }} ({{ r.iibb_pct }}%)
+                                    </span>
+                                    {% endif %}
+                                    <span style="color: #10b981; font-weight: 600; border-top: 1px solid var(--color-table-divider); padding-top: 2px; margin-top: 2px;">
+                                        ┃ Comisión MELI: ${{ '{:,.0f}'.format(r.real_fee.selling_fee_amount) }}
+                                    </span>
+                                    {% set total_cargos = r.real_fee.selling_fee_amount + r.envio + r.iibb %}
+                                    <span style="color: var(--color-error); font-weight: 600;">
+                                        ┃ Total cargos: ${{ '{:,.0f}'.format(total_cargos) }}
+                                    </span>
+                                </div>
+                            </td>
+                            {% elif fees_from_api %}
+                            <td style="font-size: 11px; color: var(--color-on-surface-variant); text-align: center;">
+                                <span style="opacity: 0.5;">Sin datos de API</span>
+                            </td>
+                            {% endif %}
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
+                {% if fees_from_api %}
+                <div style="padding: 12px 20px; border-top: 1px solid var(--color-table-divider); background: var(--color-surface-container-low); font-size: 12px; color: var(--color-on-surface-variant);">
+                    <p style="margin: 0 0 4px 0; font-weight: 600;">💰 Leyenda de cargos:</p>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px 0;">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: #f97316; flex-shrink: 0;"></span>
+                            <span><strong>MELI</strong> — Comisión base</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: #8b5cf6; flex-shrink: 0;"></span>
+                            <span><strong>Cuotas</strong> — Recargo financiación</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: #06b6d4; flex-shrink: 0;"></span>
+                            <span><strong>Cargo fijo</strong> — Costo fijo venta</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: #eab308; flex-shrink: 0;"></span>
+                            <span><strong>Envío</strong> — Costo de envío</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: #ec4899; flex-shrink: 0;"></span>
+                            <span><strong>IIBB</strong> — Ingresos Brutos</span>
+                        </div>
+                    </div>
+                    <p style="margin: 6px 0 0 0; font-size: 11px; opacity: 0.7;">Los cálculos usan costos fijos + tasas estimadas. La comisión real de MELI puede variar según precio final y categoría.</p>
+                </div>
+                {% endif %}
             </div>
         </div>
         {% else %}
         <div class="card" style="text-align: center; padding: 48px 24px;">
             <div style="font-size: 48px; margin-bottom: 12px; opacity: 0.5;">🧮</div>
-            <p style="font-size: 16px; color: var(--color-on-surface-variant); margin-bottom: 8px;">Ingresá el costo y calculá</p>
+            <p style="font-size: 16px; color: var(--color-on-surface-variant); margin-bottom: 8px;">Ingresá los costos y calculá</p>
             <p style="font-size: 14px; color: var(--color-on-surface-variant); opacity: 0.7;">Mostramos todas las combinaciones de tipo + cuotas</p>
             <div class="grid-2" style="max-width: 400px; margin: 24px auto 0; gap: 12px;">
                 <div style="background: var(--color-primary-container); border-radius: var(--radius-md); padding: 12px; text-align: left;">
@@ -140,7 +273,84 @@ function toggleModo() {
     const modo = document.querySelector('input[name="modo"]:checked').value;
     document.getElementById('margen-field').classList.toggle('hidden', modo !== 'margen');
     document.getElementById('ganancia-field').classList.toggle('hidden', modo !== 'garantizado');
+    document.getElementById('neto-field').classList.toggle('hidden', modo !== 'neto');
 }
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const shippingBtn = document.getElementById('calc-shipping-btn');
+    const envioInput = document.querySelector('input[name="envio"]');
+    const shippingResult = document.getElementById('shipping-result');
+
+    if (shippingBtn) {
+        shippingBtn.addEventListener('click', async function() {
+            shippingBtn.disabled = true;
+            shippingBtn.innerHTML = '⏳ Consultando...';
+            shippingResult.style.display = 'none';
+
+            try {
+                const resp = await fetch('/api/calcular-envio', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: '{}',
+                });
+                const data = await resp.json();
+
+                if (data.error) {
+                    shippingResult.innerHTML = `⚠️ ${data.error}`;
+                    shippingResult.style.display = 'block';
+                    shippingResult.style.color = 'var(--color-warning, #f59e0b)';
+                    return;
+                }
+
+                // Parse shipping options
+                let html = '';
+                let foundCost = false;
+
+                // Look for free shipping threshold info
+                if (data.free_configurations && data.free_configurations.length > 0) {
+                    html += '🚚 <strong>Envío gratis:</strong> ';
+                    const freeRules = data.free_configurations.map(fc => {
+                        if (fc.condition && fc.condition.value) {
+                            return `desde $${Number(fc.condition.value).toLocaleString('es-AR')}`;
+                        }
+                        return 'disponible';
+                    });
+                    html += freeRules.join(', ');
+                    html += '<br>';
+                }
+
+                // Show available modes
+                if (data.modes && data.modes.length > 0) {
+                    html += '📋 <strong>Modalidades:</strong> ';
+                    html += data.modes.map(m => {
+                        const labels = {me2: 'Mercado Envíos', custom: 'Personalizado', not_specified: 'Sin especificar'};
+                        return labels[m.mode] || m.mode;
+                    }).join(', ');
+                }
+
+                if (html) {
+                    shippingResult.innerHTML = html;
+                    shippingResult.style.display = 'block';
+                    shippingResult.style.color = 'var(--color-on-surface)';
+                } else {
+                    shippingResult.innerHTML = '✅ Configuración de envío obtenida. El costo depende del destino del comprador.';
+                    shippingResult.style.display = 'block';
+                    shippingResult.style.color = 'var(--color-on-surface)';
+                }
+
+            } catch (err) {
+                shippingResult.innerHTML = `✗ Error de conexión: ${err.message}`;
+                shippingResult.style.display = 'block';
+                shippingResult.style.color = 'var(--color-error)';
+            } finally {
+                shippingBtn.disabled = false;
+                shippingBtn.innerHTML = '📦 Calcular desde MELI';
+            }
+        });
+    }
+});
 </script>
 
 {% endblock %}

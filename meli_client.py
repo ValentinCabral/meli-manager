@@ -183,6 +183,57 @@ class MeliClient:
             "attributes": attrs,
         }
 
+    def get_shipping_options(self) -> dict:
+        """Obtiene las opciones de envío del vendedor desde MELI.
+
+        Returns:
+            dict con modes, free_configurations, default_mode.
+            Vacío si hay error.
+        """
+        self._ensure_token()
+        if not self.user_id:
+            me = self.check_connection()
+            if not me.get("connected"):
+                return {}
+
+        try:
+            resp = requests.get(
+                f"{self.BASE_URL}/users/{self.user_id}/shipping_options",
+                headers=self._headers(),
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return {
+                "modes": data.get("modes", []),
+                "free_configurations": data.get("free_configurations", []),
+                "default_mode": data.get("default_mode", ""),
+            }
+        except Exception:
+            return {}
+
+    def get_item_description(self, item_id: str) -> str:
+        """Obtiene la descripción en texto plano de una publicación.
+
+        Args:
+            item_id: ID de la publicación (ej: MLA1234567890).
+
+        Returns:
+            str con el texto de la descripción, o "" si hay error.
+        """
+        self._ensure_token()
+        try:
+            resp = requests.get(
+                f"{self.BASE_URL}/items/{item_id}/description",
+                headers=self._headers(),
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("plain_text", "")
+        except Exception:
+            return ""
+
     # ─── Publicaciones ──────────────────────────────────────
 
     def crear_publicacion(self, catalog_product_id: str, price: float,
@@ -249,6 +300,7 @@ class MeliClient:
             "id": data["id"],
             "title": data.get("title", ""),
             "price": data.get("price", 0),
+            "category_id": data.get("category_id", ""),
             "status": data.get("status", ""),
             "listing_type": data.get("listing_type_id", ""),
             "available_quantity": data.get("available_quantity", 0),
@@ -329,6 +381,34 @@ class MeliClient:
             return resp.json()
         except requests.HTTPError:
             return []
+
+    def get_real_fee_rate(self, price: float, listing_type: str,
+                          campaign_tag: str = "") -> dict | None:
+        """Obtiene la comisión real desde la API de MELI para un precio dado.
+
+        Returns dict con:
+          - percentage_fee: porcentaje total de comisión
+          - selling_fee_amount: monto total de comisión en $
+          - breakdown: detalle de componentes (meli_fee, financing, shipping, taxes, etc.)
+        Returns None si falla la llamada.
+        """
+        result = self.get_listing_prices(price, listing_type, campaign_tag)
+        if not result or len(result) == 0:
+            return None
+
+        entry = result[0]
+        details = entry.get("sale_fee_details", {})
+        return {
+            "percentage_fee": details.get("percentage_fee", 0),
+            "selling_fee_amount": entry.get("selling_fee_amount", 0),
+            "listing_fee_amount": entry.get("listing_fee_amount", 0),
+            "breakdown": {
+                "meli_percentage_fee": details.get("meli_percentage_fee", 0),
+                "financing_add_on_fee": details.get("financing_add_on_fee", 0),
+                "fixed_fee": details.get("fixed_fee", 0),
+                "gross_amount": details.get("gross_amount", 0),
+            }
+        }
 
     # ─── Campañas ────────────────────────────────────────────
 
